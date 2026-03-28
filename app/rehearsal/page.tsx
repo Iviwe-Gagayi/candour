@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ScenarioConfig, buildSystemPrompt } from "@/lib/claude";
-import { speak } from "@/lib/elevenlabs";
+import { speak, stripActions } from "@/lib/elevenlabs";
 import {
     loadModels,
     detectExpression,
@@ -24,6 +24,9 @@ export default function RehearsalPage() {
     const recognitionRef = useRef<any>(null);
     const fillerLog = useRef<string[]>([]);
     const fullTranscriptRef = useRef<string>("");
+    const [micMode, setMicMode] = useState<"hold" | "click" | "auto">("hold");
+    const [clickActive, setClickActive] = useState(false);
+    const silenceTimer = useRef<NodeJS.Timeout | null>(null);
 
     const [scenario, setScenario] = useState<ScenarioConfig | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -119,7 +122,7 @@ export default function RehearsalPage() {
             setMessages([aiMessage]);
             setIsThinking(false);
             setIsSpeaking(true);
-            await speak(data.message, undefined, speechRate);
+            await speak(stripActions(data.message), undefined, speechRate);
             setIsSpeaking(false);
         } catch (e) {
             console.error("startSession failed:", e);
@@ -160,7 +163,7 @@ export default function RehearsalPage() {
         setMessages((prev) => [...prev, aiMessage]);
         setIsThinking(false);
         setIsSpeaking(true);
-        await speak(data.message, undefined, speechRate);
+        await speak(stripActions(data.message), undefined, speechRate);
         setIsSpeaking(false);
     }
 
@@ -173,25 +176,41 @@ export default function RehearsalPage() {
         "like", "you know", "sort of", "kind of", "basically", "literally"
     ];
 
-    function startListening() {
-        window.speechSynthesis.cancel();
-        setIsSpeaking(false);
+    function createRecognition() {
         const SpeechRecognition =
             (window as any).SpeechRecognition ||
             (window as any).webkitSpeechRecognition;
-        if (!SpeechRecognition) return;
+        if (!SpeechRecognition) return null;
 
         const recognition = new SpeechRecognition();
-        recognitionRef.current = recognition;
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = "en-US";
-
         fullTranscriptRef.current = "";
         fillerLog.current = [];
+        return recognition;
+    }
 
-        recognition.onstart = () => setIsListening(true);
+    function handleSend() {
+        const finalText = fullTranscriptRef.current.trim();
+        if (!finalText) return;
 
+        const currentFillers: string[] = [];
+        fillerWords.forEach((filler) => {
+            const regex = new RegExp(`\\b${filler}\\b`, "gi");
+            const matches = finalText.match(regex);
+            if (matches) currentFillers.push(...matches);
+        });
+
+        const existingFillers = JSON.parse(sessionStorage.getItem("candour_fillers") || "[]");
+        sessionStorage.setItem("candour_fillers", JSON.stringify([...existingFillers, ...currentFillers]));
+
+        setTranscript("");
+        fullTranscriptRef.current = "";
+        sendMessage(finalText);
+    }
+
+    function attachResultHandler(recognition: any, autoStop: boolean) {
         recognition.onresult = (e: any) => {
             let interim = "";
             let final = "";
@@ -207,39 +226,92 @@ export default function RehearsalPage() {
 
             if (final) fullTranscriptRef.current += " " + final;
             setTranscript((fullTranscriptRef.current + " " + interim).trim());
+
+            // Auto mode — reset silence timer on every result
+            if (autoStop) {
+                if (silenceTimer.current) clearTimeout(silenceTimer.current);
+                silenceTimer.current = setTimeout(() => {
+                    recognition.stop();
+                }, 2000); // 2s of silence triggers send
+            }
         };
 
         recognition.onerror = (e: any) => {
             if (e.error !== "no-speech") {
                 console.error("Speech recognition error:", e.error);
                 setIsListening(false);
+                setClickActive(false);
             }
         };
 
+        recognition.onend = () => {
+            setIsListening(false);
+            setClickActive(false);
+            if (silenceTimer.current) clearTimeout(silenceTimer.current);
+            // Small delay so final onresult fires before we read the ref
+            setTimeout(() => handleSend(), 100);
+        };
+    }
+
+    // HOLD mode
+    function startHold() {
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
+        const recognition = createRecognition();
+        if (!recognition) return;
+        recognitionRef.current = recognition;
+        attachResultHandler(recognition, false);
+        recognition.onstart = () => setIsListening(true);
+        // Override onend for hold — only send on button release, not auto
+        recognition.onend = () => {
+            setIsListening(false);
+            setTimeout(() => handleSend(), 100);
+        };
         recognition.start();
     }
 
-    function stopListening() {
+    function stopHold() {
         recognitionRef.current?.stop();
-        setIsListening(false);
+    }
 
-        const finalText = fullTranscriptRef.current.trim();
-
-        if (finalText) {
-            const currentFillers: string[] = [];
-            fillerWords.forEach((filler) => {
-                const regex = new RegExp(`\\b${filler}\\b`, "gi");
-                const matches = finalText.match(regex);
-                if (matches) currentFillers.push(...matches);
-            });
-
-            const existingFillers = JSON.parse(sessionStorage.getItem("candour_fillers") || "[]");
-            sessionStorage.setItem("candour_fillers", JSON.stringify([...existingFillers, ...currentFillers]));
-
-            setTranscript("");
-            fullTranscriptRef.current = "";
-            sendMessage(finalText);
+    // CLICK mode
+    function handleClickToggle() {
+        if (clickActive) {
+            // Stop
+            recognitionRef.current?.stop();
+            setClickActive(false);
+        } else {
+            // Start
+            window.speechSynthesis.cancel();
+            setIsSpeaking(false);
+            const recognition = createRecognition();
+            if (!recognition) return;
+            recognitionRef.current = recognition;
+            attachResultHandler(recognition, false);
+            recognition.onstart = () => { setIsListening(true); setClickActive(true); };
+            recognition.onend = () => {
+                setIsListening(false);
+                setClickActive(false);
+                setTimeout(() => handleSend(), 100);
+            };
+            recognition.start();
         }
+    }
+
+    // AUTO mode
+    function startAuto() {
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
+        const recognition = createRecognition();
+        if (!recognition) return;
+        recognitionRef.current = recognition;
+        attachResultHandler(recognition, true);
+        recognition.onstart = () => setIsListening(true);
+        recognition.onend = () => {
+            setIsListening(false);
+            setTimeout(() => handleSend(), 100);
+        };
+        recognition.start();
     }
 
     async function breakCharacter() {
@@ -397,49 +469,130 @@ export default function RehearsalPage() {
                     </div>
 
                     {/* Voice input */}
+                    {/* Voice input */}
                     <div
                         id="chat-input"
                         style={{
                             padding: "1.25rem 1.5rem",
                             borderTop: "1px solid rgba(255,255,255,0.05)",
                             display: "flex",
-                            alignItems: "center",
-                            gap: "1rem",
+                            flexDirection: "column",
+                            gap: "0.75rem",
                             flexShrink: 0,
                         }}
                     >
-                        <div style={{ flex: 1, color: transcript ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.25)", fontSize: "0.9375rem", fontStyle: transcript ? "italic" : "normal" }}>
-                            {transcript
-                                ? `"${transcript}"`
-                                : isListening ? "Listening..."
-                                    : isSpeaking ? "Speaking..."
-                                        : "Press and hold to speak"}
+                        {/* Mode selector */}
+                        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                            <span style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.6)", marginRight: "4px" }}>
+                                Mic mode:
+                            </span>
+                            {([
+                                { key: "hold", label: "Hold" },
+                                { key: "click", label: "Click" },
+                                { key: "auto", label: "Auto" },
+                            ] as const).map((mode) => (
+                                <button
+                                    key={mode.key}
+                                    onClick={() => setMicMode(mode.key)}
+                                    aria-pressed={micMode === mode.key}
+                                    style={{
+                                        padding: "4px 12px",
+                                        borderRadius: "999px",
+                                        border: `1px solid ${micMode === mode.key ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.08)"}`,
+                                        background: micMode === mode.key ? "rgba(251,191,36,0.1)" : "transparent",
+                                        color: micMode === mode.key ? "#fbbf24" : "rgba(255,255,255,0.5)",
+                                        fontSize: "0.8125rem",
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {mode.label}
+                                </button>
+                            ))}
                         </div>
 
-                        <button
-                            onMouseDown={startListening}
-                            onMouseUp={stopListening}
-                            onTouchStart={startListening}
-                            onTouchEnd={stopListening}
-                            disabled={isThinking || isSpeaking}
-                            aria-label={isListening ? "Release to send" : "Hold to speak"}
-                            aria-pressed={isListening}
-                            style={{
-                                width: "64px",
-                                height: "64px",
-                                borderRadius: "50%",
-                                border: "none",
-                                background: isListening ? "#ef4444" : "#fbbf24",
-                                cursor: isThinking || isSpeaking ? "not-allowed" : "pointer",
-                                opacity: isThinking || isSpeaking ? 0.4 : 1,
-                                fontSize: "1.5rem",
-                                transition: "all 0.15s",
-                                flexShrink: 0,
-                                boxShadow: isListening ? "0 0 0 8px rgba(239,68,68,0.2)" : "none",
-                            }}
-                        >
-                            {isListening ? "⏹" : "🎤"}
-                        </button>
+                        {/* Input row */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                            <div style={{
+                                flex: 1,
+                                color: transcript ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.25)",
+                                fontSize: "0.9375rem",
+                                fontStyle: transcript ? "italic" : "normal",
+                                minHeight: "1.5rem",
+                            }}>
+                                {transcript
+                                    ? `"${transcript}"`
+                                    : isListening ? "Listening..."
+                                        : isSpeaking ? "Speaking..."
+                                            : micMode === "hold" ? "Hold to speak"
+                                                : micMode === "click" ? "Click to start speaking"
+                                                    : "Click to start — pausing will send automatically"}
+                            </div>
+
+                            {/* Hold button */}
+                            {micMode === "hold" && (
+                                <button
+                                    onMouseDown={startHold}
+                                    onMouseUp={stopHold}
+                                    onTouchStart={startHold}
+                                    onTouchEnd={stopHold}
+                                    disabled={isThinking || isSpeaking}
+                                    aria-label={isListening ? "Release to send" : "Hold to speak"}
+                                    aria-pressed={isListening}
+                                    style={{
+                                        width: "64px", height: "64px", borderRadius: "50%",
+                                        border: "none",
+                                        background: isListening ? "#ef4444" : "#fbbf24",
+                                        cursor: isThinking || isSpeaking ? "not-allowed" : "pointer",
+                                        opacity: isThinking || isSpeaking ? 0.4 : 1,
+                                        fontSize: "1.5rem", transition: "all 0.15s", flexShrink: 0,
+                                        boxShadow: isListening ? "0 0 0 8px rgba(239,68,68,0.2)" : "none",
+                                    }}
+                                >
+                                    {isListening ? "⏹" : "🎤"}
+                                </button>
+                            )}
+
+                            {/* Click button */}
+                            {micMode === "click" && (
+                                <button
+                                    onClick={handleClickToggle}
+                                    disabled={isThinking || isSpeaking}
+                                    aria-label={clickActive ? "Click to stop and send" : "Click to start speaking"}
+                                    aria-pressed={clickActive}
+                                    style={{
+                                        width: "64px", height: "64px", borderRadius: "50%",
+                                        border: "none",
+                                        background: clickActive ? "#ef4444" : "#fbbf24",
+                                        cursor: isThinking || isSpeaking ? "not-allowed" : "pointer",
+                                        opacity: isThinking || isSpeaking ? 0.4 : 1,
+                                        fontSize: "1.5rem", transition: "all 0.15s", flexShrink: 0,
+                                        boxShadow: clickActive ? "0 0 0 8px rgba(239,68,68,0.2)" : "none",
+                                    }}
+                                >
+                                    {clickActive ? "⏹" : "🎤"}
+                                </button>
+                            )}
+
+                            {/* Auto button */}
+                            {micMode === "auto" && (
+                                <button
+                                    onClick={startAuto}
+                                    disabled={isListening || isThinking || isSpeaking}
+                                    aria-label="Click to start speaking — will send automatically when you pause"
+                                    style={{
+                                        width: "64px", height: "64px", borderRadius: "50%",
+                                        border: "none",
+                                        background: isListening ? "#ef4444" : "#fbbf24",
+                                        cursor: isListening || isThinking || isSpeaking ? "not-allowed" : "pointer",
+                                        opacity: isListening || isThinking || isSpeaking ? 0.4 : 1,
+                                        fontSize: "1.5rem", transition: "all 0.15s", flexShrink: 0,
+                                        boxShadow: isListening ? "0 0 0 8px rgba(239,68,68,0.2)" : "none",
+                                    }}
+                                >
+                                    {isListening ? "⏹" : "🎤"}
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
 

@@ -45,7 +45,7 @@ const labelStyle = {
     display: "block",
     fontSize: "0.875rem",
     fontWeight: 600,
-    color: "rgba(255,255,255,0.7)",
+    color: "rgba(255,255,255,0.85)",
     marginBottom: "8px",
     letterSpacing: "0.03em",
 };
@@ -154,7 +154,7 @@ export default function SetupPage() {
                                     border: `1px solid ${activePreset === i ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.08)"}`,
                                     borderRadius: "10px",
                                     padding: "12px 16px",
-                                    color: activePreset === i ? "#fbbf24" : "rgba(255,255,255,0.7)",
+                                    color: activePreset === i ? "#fbbf24" : "rgba(255,255,255,0.85)",
                                     fontSize: "0.9375rem",
                                     cursor: "pointer",
                                     transition: "all 0.2s",

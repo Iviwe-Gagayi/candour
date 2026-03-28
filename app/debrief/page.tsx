@@ -22,21 +22,40 @@ function parseDebrief(text: string): DebriefSection[] {
         { key: "What worked", emoji: "✅" },
         { key: "What to work on", emoji: "🔧" },
         { key: "Expression insights", emoji: "👁️" },
-        { key: "One thing to practise", emoji: "🎯" },
+        { key: "One thing to practise", emoji: "⭐" },
     ];
 
     return sections.map(({ key, emoji }) => {
-        const regex = new RegExp(
-            `\\*\\*${key}\\*\\*[:\\s]*([\\s\\S]*?)(?=\\*\\*|$)`,
+        // Try bold header first
+        const boldRegex = new RegExp(
+            `\\*\\*${key}\\*\\*[:\\s]*([\\s\\S]*?)(?=\\*\\*[A-Z]|$)`,
             "i"
         );
-        const match = text.match(regex);
-        return {
-            title: key,
-            emoji,
-            content: match ? match[1].trim() : "",
-        };
-    }).filter((s) => s.content);
+        // Try numbered header e.g. "1. Overall"
+        const numberedRegex = new RegExp(
+            `\\d+\\.\\s*\\*?\\*?${key}\\*?\\*?[:\\s]*([\\s\\S]*?)(?=\\d+\\.|\\*\\*[A-Z]|$)`,
+            "i"
+        );
+        // Try plain header e.g. "Overall:" on its own line
+        const plainRegex = new RegExp(
+            `(?:^|\\n)${key}[:\\s]*([\\s\\S]*?)(?=\\n[A-Z]|\\*\\*|\\d+\\.|$)`,
+            "i"
+        );
+
+        const match =
+            text.match(boldRegex) ||
+            text.match(numberedRegex) ||
+            text.match(plainRegex);
+
+        const content = match
+            ? match[1]
+                .replace(/^[-–]\s*/gm, "")
+                .replace(/\*\*/g, "")
+                .trim()
+            : "";
+
+        return { title: key, emoji, content };
+    }).filter((s) => s.content && s.content !== "—" && s.content.length > 2);
 }
 
 export default function DebriefPage() {

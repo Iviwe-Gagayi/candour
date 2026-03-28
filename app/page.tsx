@@ -56,7 +56,7 @@ export default function Home() {
             width: "600px",
             height: "600px",
             borderRadius: "50%",
-            background: "rgba(251,191,36,0.07)",
+            background: "rgba(251,191,36,0.04)",
             filter: "blur(100px)",
             pointerEvents: "none",
           }}
@@ -143,7 +143,7 @@ export default function Home() {
           id="features-heading"
           style={{
             fontSize: "0.875rem",
-            color: "rgba(255,255,255,0.4)",
+            color: "rgba(255,255,255,0.6)",
             letterSpacing: "0.15em",
             marginBottom: "2rem",
             textAlign: "center",

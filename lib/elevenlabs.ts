@@ -28,6 +28,15 @@ export function speakWithWebSpeech(text: string, rate: number = 1): void {
     window.speechSynthesis.speak(utterance);
 }
 
+export function stripActions(text: string): string {
+    return text
+        .replace(/\*[^*]+\*/g, "") // removes *action text*
+        .replace(/\[[^\]]+\]/g, "") // removes [action text]
+        .replace(/\([^)]+\)/g, "") // removes (action text)
+        .replace(/\s+/g, " ") // clean up extra spaces
+        .trim();
+}
+
 export async function speak(text: string, voiceId?: string, rate: number = 1): Promise<void> {
     const useElevenLabs = process.env.NEXT_PUBLIC_USE_ELEVENLABS === "true";
     if (useElevenLabs) {

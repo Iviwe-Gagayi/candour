@@ -60,3 +60,7 @@ button:focus-visible {
     transform: translateX(-50%) translateY(8px);
   }
 }
+
+::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}

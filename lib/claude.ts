@@ -29,7 +29,7 @@ ${scenario.situation}
 ## The user's goal
 ${scenario.userGoal}
 
-${scenario.context ? `## Additional context\n${scenario.context}` : ""}
+${scenario.context ? `## Background context and documents\nThe user has provided the following context. Use it to inform how you respond:\n\n${scenario.context}` : ""}
 
 Begin the conversation naturally as ${scenario.personRole} would — with a greeting or opening statement appropriate to the situation.`;
 }

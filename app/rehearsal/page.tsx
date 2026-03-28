@@ -387,6 +387,7 @@ export default function RehearsalPage() {
             <nav
                 aria-label="Rehearsal controls"
                 style={{
+                    position: "relative",
                     borderBottom: "1px solid rgba(255,255,255,0.05)",
                     padding: "1rem 1.5rem",
                     display: "flex",
@@ -398,10 +399,23 @@ export default function RehearsalPage() {
                 <span style={{ fontFamily: "var(--font-display)", color: "#fbbf24", fontSize: "1.25rem" }}>
                     Candour
                 </span>
-                <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem" }}>
-                    Rehearsing with:{" "}
-                    <strong style={{ color: "white" }}>{scenario.personRole}</strong>
-                </span>
+                <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                    <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem" }}>
+                        Rehearsing with:{" "}
+                        <strong style={{ color: "white" }}>{scenario.personRole}</strong>
+                    </span>
+                    {scenario.context && (
+                        <span style={{
+                            fontSize: "0.7rem",
+                            color: "rgba(255,255,255,0.4)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "3px",
+                        }}>
+                            <span aria-hidden="true">📎</span> Context loaded
+                        </span>
+                    )}
+                </div>
                 <div style={{ display: "flex", gap: "0.75rem" }}>
                     <button
                         onClick={breakCharacter}

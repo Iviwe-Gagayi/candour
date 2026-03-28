@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ScenarioConfig } from "@/lib/claude";
+import { extractTextFromFile, getFileType, truncateContext } from "@/lib/documentParser";
 
 const PRESETS: ScenarioConfig[] = [
     {
@@ -51,6 +52,10 @@ const labelStyle = {
 };
 
 export default function SetupPage() {
+    const [documentTexts, setDocumentTexts] = useState<{ name: string, text: string }[]>([]);
+    const [documentLoading, setDocumentLoading] = useState(false);
+    const [documentError, setDocumentError] = useState("");
+
     const router = useRouter();
     const [scenario, setScenario] = useState<ScenarioConfig>({
         userName: "",
@@ -91,7 +96,41 @@ export default function SetupPage() {
         router.push("/rehearsal");
     }
 
+    async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
 
+        setDocumentLoading(true);
+        setDocumentError("");
+
+        try {
+            const newDocs: { name: string, text: string }[] = [];
+            for (const file of files) {
+                const type = getFileType(file);
+                if (!type) {
+                    setDocumentError(`Skipped ${file.name} — unsupported file type.`);
+                    continue;
+                }
+                const text = await extractTextFromFile(file);
+                newDocs.push({ name: file.name, text: truncateContext(text) });
+            }
+
+            setDocumentTexts((prev) => {
+                const updated = [...prev, ...newDocs];
+                const combined = updated.map(d => `Document: ${d.name}\n\n${d.text}`).join("\n\n---\n\n");
+                // Preserve any manual context the user already typed
+                const manualContext = scenario.context?.split("\n\n---\n\n").find(s => !s.startsWith("Document:"))?.trim() || "";
+                setScenario((p) => ({ ...p, context: manualContext ? `${combined}\n\n---\n\n${manualContext}` : combined }));
+                return updated;
+            });
+        } catch (e) {
+            console.error("Document parse error:", e);
+            setDocumentError("Failed to read a document. Please try again.");
+        } finally {
+            setDocumentLoading(false);
+            e.target.value = ""; // reset input so same file can be re-uploaded
+        }
+    }
 
     return (
         <main
@@ -286,17 +325,126 @@ export default function SetupPage() {
                         />
                     </div>
 
+                    {/* Context */}
                     <div>
-                        <label htmlFor="context" style={labelStyle}>
+                        <label style={labelStyle}>
                             Any background context?{" "}
                             <span style={{ color: "rgba(255,255,255,0.55)", fontWeight: 400 }}>(optional)</span>
                         </label>
+
+                        {/* File upload */}
+                        <div
+                            style={{
+                                border: "1px dashed rgba(255,255,255,0.15)",
+                                borderRadius: "12px",
+                                padding: "1.25rem",
+                                marginBottom: "0.75rem",
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: "0.75rem",
+                                background: "rgba(255,255,255,0.02)",
+                                cursor: "pointer",
+                                position: "relative",
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={async (e) => {
+                                e.preventDefault();
+                                const file = e.dataTransfer.files?.[0];
+                                if (file) {
+                                    const syntheticEvent = { target: { files: [file] } } as any;
+                                    await handleFileUpload(syntheticEvent);
+                                }
+                            }}
+                        >
+                            <input
+                                type="file"
+                                id="document-upload"
+                                accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.csv"
+                                onChange={handleFileUpload}
+                                multiple
+                                style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    opacity: 0,
+                                    cursor: "pointer",
+                                    width: "100%",
+                                    height: "100%",
+                                }}
+                                aria-label="Upload documents for context"
+                            />
+                            {documentLoading ? (
+                                <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.9375rem" }}>
+                                    Reading document...
+                                </p>
+                            ) : (
+                                <>
+                                    <span aria-hidden="true" style={{ fontSize: "2rem" }}>📎</span>
+                                    <div style={{ textAlign: "center" }}>
+                                        <p style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.9375rem" }}>
+                                            Drop files or click to upload
+                                        </p>
+                                        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8125rem", marginTop: "4px" }}>
+                                            PDF, Word, Excel, or text file — multiple allowed
+                                        </p>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {documentTexts.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                                {documentTexts.map((doc, i) => (
+                                    <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.75rem", background: "rgba(255,255,255,0.04)", borderRadius: "10px", padding: "10px 14px" }}>
+                                        <span style={{ fontSize: "1.25rem" }}>📄</span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <p style={{ color: "#fbbf24", fontSize: "0.875rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                {doc.name}
+                                            </p>
+                                            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem" }}>
+                                                {doc.text.length.toLocaleString()} characters
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setDocumentTexts((prev) => {
+                                                    const updated = prev.filter((_, idx) => idx !== i);
+                                                    const combined = updated.map(d => `Document: ${d.name}\n\n${d.text}`).join("\n\n---\n\n");
+                                                    setScenario((p) => ({ ...p, context: combined }));
+                                                    return updated;
+                                                });
+                                            }}
+                                            aria-label={`Remove ${doc.name}`}
+                                            style={{
+                                                background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
+                                                color: "rgba(255,255,255,0.5)", borderRadius: "999px",
+                                                padding: "3px 10px", fontSize: "0.8125rem", cursor: "pointer", flexShrink: 0,
+                                            }}
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {documentError && (
+                            <span role="alert" style={{ color: "#ef4444", fontSize: "0.875rem", display: "block", marginBottom: "0.75rem" }}>
+                                {documentError}
+                            </span>
+                        )}
+
+                        {/* Manual context textarea */}
                         <textarea
                             id="context"
-                            rows={3}
-                            placeholder="e.g. I've already asked for a raise once before and was told to wait 6 months. It's now been 8 months."
-                            value={scenario.context || ""}
-                            onChange={(e) => setScenario((p) => ({ ...p, context: e.target.value }))}
+                            rows={2}
+                            placeholder="Add any additional context here..."
+                            value={scenario.context?.split("\n\n---\n\n").filter(s => !s.startsWith("Document:")).join("") || ""}
+                            onChange={(e) => {
+                                const docText = documentTexts.map(d => `Document: ${d.name}\n\n${d.text}`).join("\n\n---\n\n");
+                                setScenario((p) => ({ ...p, context: docText ? `${docText}\n\n---\n\n${e.target.value}` : e.target.value }));
+                            }}
                             style={{ ...inputStyle, resize: "vertical" }}
                             onFocus={(e) => (e.target.style.borderColor = "#fbbf24")}
                             onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.1)")}

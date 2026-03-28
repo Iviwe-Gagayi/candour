@@ -1,3 +1,4 @@
+// 1. Use a standard top-level import
 import * as faceapi from "face-api.js";
 
 export interface ExpressionLog {
@@ -15,12 +16,11 @@ export async function loadModels(): Promise<void> {
         faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
         faceapi.nets.faceExpressionNet.loadFromUri("/models"),
     ]);
-
     modelsLoaded = true;
 }
 
 export function getDominantExpression(
-    expressions: faceapi.FaceExpressions
+    expressions: Record<string, number>
 ): { expression: string; confidence: number } {
     const entries = Object.entries(expressions) as [string, number][];
     const [expression, confidence] = entries.reduce((a, b) =>
@@ -34,13 +34,27 @@ export async function detectExpression(
 ): Promise<{ expression: string; confidence: number } | null> {
     if (!modelsLoaded) return null;
 
-    const detection = await faceapi
-        .detectSingleFace(videoElement, new faceapi.TinyFaceDetectorOptions())
-        .withFaceExpressions();
 
-    if (!detection) return null;
+    if (videoElement.readyState !== 4) return null;
 
-    return getDominantExpression(detection.expressions);
+    try {
+
+        const options = new faceapi.TinyFaceDetectorOptions({
+            scoreThreshold: 0.3,
+            inputSize: 416
+        });
+
+        const detection = await faceapi
+            .detectSingleFace(videoElement, options)
+            .withFaceExpressions();
+
+        if (!detection) return null;
+
+        return getDominantExpression(detection.expressions as unknown as Record<string, number>);
+    } catch (error) {
+        console.error("Detection threw an error:", error);
+        return null;
+    }
 }
 
 export function expressionToEmoji(expression: string): string {

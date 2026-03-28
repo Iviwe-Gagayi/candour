@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 
+console.log("API key loaded:", !!process.env.ANTHROPIC_API_KEY);
+
 const client = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
 });
@@ -17,7 +19,7 @@ export async function POST(req: NextRequest) {
         }
 
         const response = await client.messages.create({
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4-5-20250929",
             max_tokens: 1024,
             system: systemPrompt,
             messages,
@@ -33,9 +35,11 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ message: content.text });
     } catch (error) {
-        console.error("Claude API error:", error);
+        console.error("Full Claude error:", JSON.stringify(error, null, 2));
+        console.error("Error message:", (error as any)?.message);
+        console.error("Error status:", (error as any)?.status);
         return NextResponse.json(
-            { error: "Failed to get response from Claude" },
+            { error: "Failed to get response from Claude", details: (error as any)?.message },
             { status: 500 }
         );
     }

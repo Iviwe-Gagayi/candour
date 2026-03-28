@@ -9,6 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@elevenlabs/elevenlabs-js": "^2.40.0",
+    "ai": "^6.0.141",
+    "face-api.js": "^0.22.2",
     "next": "16.2.1",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -18,9 +22,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.27",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
-    "tailwindcss": "^4",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.2",
     "typescript": "^5"
   }
 }

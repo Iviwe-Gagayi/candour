@@ -31,7 +31,7 @@ export function connectHume(
         const applyCalibration = (emotions: HumeEmotion[]) => {
             return emotions.map(e => ({
                 ...e,
-                score: ["Boredom", "Tiredness", "Sadness"].includes(e.name) ? e.score * 0.6 : e.score
+                score: ["Boredom", "Tiredness", "Sadness"].includes(e.name) ? e.score * 0.5 : e.score
             })).sort((a, b) => b.score - a.score).slice(0, 3);
         };
 
@@ -156,7 +156,10 @@ function generateFaceLabel(emotions: HumeEmotion[]): string {
         Contemplation: "You look like you are thinking deeply.",
         Boredom: "You appear disengaged. Try making more eye contact.",
     };
-    return insights[primary] ?? `You look ${primary.toLowerCase()}.`;
+    const label = primary.endsWith("ment") || primary.endsWith("ness")
+        ? `You're conveying ${primary.toLowerCase()}.`
+        : `You look ${primary.toLowerCase()}.`;
+    return insights[primary] ?? label;
 }
 
 //Mapping vocal tones to actionable feedback
@@ -171,5 +174,8 @@ function generateVoiceLabel(emotions: HumeEmotion[]): string {
         Boredom: "Your tone is very flat. Try adding some vocal variety.",
         Calmness: "You sound steady and composed."
     };
-    return insights[primary] ?? `You sound ${primary.toLowerCase()}.`;
+    const label = primary.endsWith("ment") || primary.endsWith("ness")
+        ? `You're conveying ${primary.toLowerCase()}.`
+        : `You sound ${primary.toLowerCase()}.`;
+    return insights[primary] ?? label;
 }

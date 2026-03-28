@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ScenarioConfig, buildDebriefPrompt } from "@/lib/claude";
 import { ExpressionLog } from "@/lib/hume";
+import EmotionalArcChart from "@/app/components/EmotionalArcChart";
 
 interface Message {
     role: "user" | "assistant";
@@ -26,32 +27,14 @@ function parseDebrief(text: string): DebriefSection[] {
     ];
 
     return sections.map(({ key, emoji }) => {
-        // Try bold header first
-        const boldRegex = new RegExp(
-            `\\*\\*${key}\\*\\*[:\\s]*([\\s\\S]*?)(?=\\*\\*[A-Z]|$)`,
-            "i"
-        );
-        // Try numbered header e.g. "1. Overall"
-        const numberedRegex = new RegExp(
-            `\\d+\\.\\s*\\*?\\*?${key}\\*?\\*?[:\\s]*([\\s\\S]*?)(?=\\d+\\.|\\*\\*[A-Z]|$)`,
-            "i"
-        );
-        // Try plain header e.g. "Overall:" on its own line
-        const plainRegex = new RegExp(
-            `(?:^|\\n)${key}[:\\s]*([\\s\\S]*?)(?=\\n[A-Z]|\\*\\*|\\d+\\.|$)`,
-            "i"
-        );
+        const boldRegex = new RegExp(`\\*\\*${key}\\*\\*[:\\s]*([\\s\\S]*?)(?=\\*\\*[A-Z]|$)`, "i");
+        const numberedRegex = new RegExp(`\\d+\\.\\s*\\*?\\*?${key}\\*?\\*?[:\\s]*([\\s\\S]*?)(?=\\d+\\.|\\*\\*[A-Z]|$)`, "i");
+        const plainRegex = new RegExp(`(?:^|\\n)${key}[:\\s]*([\\s\\S]*?)(?=\\n[A-Z]|\\*\\*|\\d+\\.|$)`, "i");
 
-        const match =
-            text.match(boldRegex) ||
-            text.match(numberedRegex) ||
-            text.match(plainRegex);
+        const match = text.match(boldRegex) || text.match(numberedRegex) || text.match(plainRegex);
 
         const content = match
-            ? match[1]
-                .replace(/^[-–]\s*/gm, "")
-                .replace(/\*\*/g, "")
-                .trim()
+            ? match[1].replace(/^[-–]\s*/gm, "").replace(/\*\*/g, "").trim()
             : "";
 
         return { title: key, emoji, content };
@@ -64,8 +47,10 @@ export default function DebriefPage() {
     const [debrief, setDebrief] = useState<DebriefSection[]>([]);
     const [rawDebrief, setRawDebrief] = useState("");
     const [fillers, setFillers] = useState<string[]>([]);
+    const [expressions, setExpressions] = useState<ExpressionLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
+    const [showDeepDive, setShowDeepDive] = useState(false);
 
     useEffect(() => {
         const storedScenario = sessionStorage.getItem("candour_scenario");
@@ -80,32 +65,24 @@ export default function DebriefPage() {
 
         const scenarioData: ScenarioConfig = JSON.parse(storedScenario);
         const transcript: Message[] = JSON.parse(storedTranscript);
-        const expressions: ExpressionLog[] = storedExpressions
-            ? JSON.parse(storedExpressions)
-            : [];
-        const fillerData: string[] = storedFillers
-            ? JSON.parse(storedFillers)
-            : [];
+        const expData: ExpressionLog[] = storedExpressions ? JSON.parse(storedExpressions) : [];
+        const fillerData: string[] = storedFillers ? JSON.parse(storedFillers) : [];
 
         setScenario(scenarioData);
         setFillers(fillerData);
-        generateDebrief(scenarioData, transcript, expressions);
+        setExpressions(expData);
+        generateDebrief(scenarioData, transcript, expData);
     }, [router]);
 
-    async function generateDebrief(
-        scenarioData: ScenarioConfig,
-        transcript: Message[],
-        expressions: ExpressionLog[]
-    ) {
+    async function generateDebrief(scenarioData: ScenarioConfig, transcript: Message[], expData: ExpressionLog[]) {
         try {
-            const prompt = buildDebriefPrompt(transcript, expressions, scenarioData);
+            const prompt = buildDebriefPrompt(transcript, expData, scenarioData);
             const response = await fetch("/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     messages: [{ role: "user", content: prompt }],
-                    systemPrompt:
-                        "You are a warm, highly literal, and specific communication coach. You excel at translating ambiguous social data (like facial expressions and vocal tone) into explicit, actionable feedback. Always structure your response with these exact bold headers: **Overall**, **What worked**, **What to work on**, **Expression insights**, **One thing to practise**.",
+                    systemPrompt: "You are a warm, highly literal, and specific communication coach. You excel at translating ambiguous social data into explicit, actionable feedback. Always structure your response with exact bold headers: **Overall**, **What worked**, **What to work on**, **Expression insights**, **One thing to practise**.",
                 }),
             });
 
@@ -122,341 +99,148 @@ export default function DebriefPage() {
         }
     }
 
-    function fillerSummary() {
+    // --- Analytics Helpers ---
+    function getTopFillers() {
         if (fillers.length === 0) return null;
         const counts: Record<string, number> = {};
-        fillers.forEach((f) => {
-            counts[f.toLowerCase()] = (counts[f.toLowerCase()] || 0) + 1;
-        });
-        return Object.entries(counts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5);
+        fillers.forEach((f) => counts[f.toLowerCase()] = (counts[f.toLowerCase()] || 0) + 1);
+        return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
     }
 
-    const topFillers = fillerSummary();
+    function getDominantBehavior(type: "face" | "voice") {
+        const logs = expressions.filter(e => e.type === type);
+        if (logs.length === 0) return null;
+        const counts: Record<string, number> = {};
+        logs.forEach(log => {
+            if (log.topEmotions[0]) {
+                const name = log.topEmotions[0].name;
+                counts[name] = (counts[name] || 0) + 1;
+            }
+        });
+        const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        const percentage = Math.round((dominant[1] / logs.length) * 100);
+        return { name: dominant[0], percentage };
+    }
+
+    const topFillers = getTopFillers();
+    const dominantFace = getDominantBehavior("face");
+    const dominantVoice = getDominantBehavior("voice");
 
     return (
-        <main
-            style={{ background: "#141414", color: "white", minHeight: "100vh" }}
-            className="flex flex-col"
-        >
-            <a href="#main-content" className="skip-link">
-                Skip to main content
-            </a>
+        <main style={{ background: "#141414", color: "white", minHeight: "100vh" }} className="flex flex-col">
+            <a href="#main-content" className="skip-link">Skip to main content</a>
 
             {/* Nav */}
-            <nav
-                aria-label="Main navigation"
-                className="px-8 py-6 flex items-center justify-between"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
-            >
-                <Link
-                    href="/"
-                    style={{
-                        fontFamily: "var(--font-display)",
-                        color: "#fbbf24",
-                        fontSize: "1.25rem",
-                        letterSpacing: "0.05em",
-                        textDecoration: "none",
-                    }}
-                >
+            <nav aria-label="Main navigation" className="px-8 py-6 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <Link href="/" style={{ fontFamily: "var(--font-display)", color: "#fbbf24", fontSize: "1.25rem", letterSpacing: "0.05em", textDecoration: "none" }}>
                     Candour
                 </Link>
-                <span
-                    style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.875rem" }}
-                >
-                    Your Debrief
-                </span>
-                <Link
-                    href="/setup"
-                    style={{
-                        background: "#fbbf24",
-                        color: "#000",
-                        fontWeight: 700,
-                        padding: "8px 20px",
-                        borderRadius: "999px",
-                        fontSize: "0.875rem",
-                        textDecoration: "none",
-                    }}
-                >
+                <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.875rem" }}>Your Debrief</span>
+                <Link href="/setup" style={{ background: "#fbbf24", color: "#000", fontWeight: 700, padding: "8px 20px", borderRadius: "999px", fontSize: "0.875rem", textDecoration: "none" }}>
                     Rehearse Again →
                 </Link>
             </nav>
 
-            <div
-                id="main-content"
-                className="flex-1 max-w-3xl mx-auto w-full px-6 py-12 flex flex-col gap-8"
-            >
+            <div id="main-content" className="flex-1 max-w-4xl mx-auto w-full px-6 py-12 flex flex-col gap-10">
                 {/* Header */}
                 {scenario && (
                     <div className="flex flex-col gap-2">
-                        <h1
-                            style={{
-                                fontFamily: "var(--font-display)",
-                                fontSize: "clamp(2rem, 5vw, 3rem)",
-                                lineHeight: 1.1,
-                                fontWeight: 700,
-                            }}
-                        >
-                            How did it{" "}
-                            <span style={{ color: "#fbbf24", fontStyle: "italic" }}>
-                                go?
-                            </span>
+                        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(2rem, 5vw, 3rem)", lineHeight: 1.1, fontWeight: 700 }}>
+                            How did it <span style={{ color: "#fbbf24", fontStyle: "italic" }}>go?</span>
                         </h1>
-                        <p
-                            style={{
-                                color: "rgba(255,255,255,0.6)",
-                                fontSize: "1rem",
-                                lineHeight: 1.7,
-                            }}
-                        >
-                            You rehearsed:{" "}
-                            <strong style={{ color: "white" }}>{scenario.situation}</strong>
+                        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "1rem" }}>
+                            Scenario: <strong style={{ color: "white" }}>{scenario.situation}</strong>
                         </p>
                     </div>
                 )}
 
                 {/* Loading state */}
                 {isLoading && (
-                    <div
-                        role="status"
-                        aria-live="polite"
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "1rem",
-                            alignItems: "center",
-                            padding: "4rem 0",
-                            color: "rgba(255,255,255,0.5)",
-                        }}
-                    >
-                        <div
-                            aria-hidden="true"
-                            style={{
-                                width: "40px",
-                                height: "40px",
-                                borderRadius: "50%",
-                                border: "3px solid rgba(255,255,255,0.1)",
-                                borderTop: "3px solid #fbbf24",
-                                animation: "spin 1s linear infinite",
-                            }}
-                        />
-                        <p style={{ fontSize: "1rem" }}>
-                            Analysing your session...
-                        </p>
+                    <div role="status" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: "1rem", alignItems: "center", padding: "4rem 0", color: "rgba(255,255,255,0.5)" }}>
+                        <div aria-hidden="true" style={{ width: "40px", height: "40px", borderRadius: "50%", border: "3px solid rgba(255,255,255,0.1)", borderTop: "3px solid #fbbf24", animation: "spin 1s linear infinite" }} />
+                        <p>Generating expert insights...</p>
                     </div>
                 )}
 
                 {/* Error state */}
-                {error && (
-                    <div
-                        role="alert"
-                        style={{
-                            background: "rgba(239,68,68,0.1)",
-                            border: "1px solid rgba(239,68,68,0.3)",
-                            borderRadius: "12px",
-                            padding: "1.5rem",
-                            color: "#ef4444",
-                            fontSize: "1rem",
-                        }}
-                    >
-                        {error}
-                    </div>
-                )}
+                {error && <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "12px", padding: "1.5rem", color: "#ef4444" }}>{error}</div>}
 
-                {/* Filler words */}
-                {!isLoading && topFillers && topFillers.length > 0 && (
-                    <section
-                        aria-labelledby="fillers-heading"
-                        style={{
-                            background: "rgba(251,191,36,0.06)",
-                            border: "1px solid rgba(251,191,36,0.15)",
-                            borderRadius: "16px",
-                            padding: "1.5rem",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "1rem",
-                            animation: "fadeSlideUp 0.4s ease forwards",
-                            opacity: 0.01,
-                        }}
-                    >
-                        <h2
-                            id="fillers-heading"
-                            style={{
-                                fontSize: "1rem",
-                                fontWeight: 600,
-                                color: "#fbbf24",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "0.5rem",
-                            }}
-                        >
-                            <span aria-hidden="true">🗣️</span> Filler words detected
-                        </h2>
-                        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                            {topFillers.map(([word, count]) => (
-                                <div
-                                    key={word}
-                                    style={{
-                                        background: "rgba(255,255,255,0.07)",
-                                        borderRadius: "999px",
-                                        padding: "6px 14px",
-                                        fontSize: "0.9375rem",
-                                        color: "white",
-                                        display: "flex",
-                                        gap: "0.5rem",
-                                        alignItems: "center",
-
-                                    }}
-                                >
-                                    <span>"{word}"</span>
-                                    <span
-                                        style={{
-                                            background: "#fbbf24",
-                                            color: "#000",
-                                            borderRadius: "999px",
-                                            padding: "2px 8px",
-                                            fontSize: "0.8125rem",
-                                            fontWeight: 700,
-                                        }}
-                                    >
-                                        ×{count}
-                                    </span>
+                {!isLoading && (
+                    <>
+                        {/* EXECUTIVE SUMMARY GRID */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', animation: "fadeSlideUp 0.4s ease forwards", opacity: 0 }}>
+                            {dominantFace && (
+                                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                    <h3 style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Dominant Face</h3>
+                                    <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fbbf24' }}>{dominantFace.name}</p>
+                                    <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Active {dominantFace.percentage}% of the time</p>
                                 </div>
+                            )}
+                            {dominantVoice && (
+                                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                    <h3 style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Dominant Tone</h3>
+                                    <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#60a5fa' }}>{dominantVoice.name}</p>
+                                    <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Found in {dominantVoice.percentage}% of session</p>
+                                </div>
+                            )}
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <h3 style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Filler Words</h3>
+                                <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f87171' }}>{fillers.length} Detected</p>
+                                <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Top word: "{topFillers?.[0]?.[0] || 'None'}"</p>
+                            </div>
+                        </div>
+
+                        {/* DETAILED ANALYTICS TOGGLE */}
+                        <div style={{ animation: "fadeSlideUp 0.4s ease forwards", animationDelay: "0.1s", opacity: 0 }}>
+                            <button
+                                onClick={() => setShowDeepDive(!showDeepDive)}
+                                style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'white', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.875rem' }}
+                            >
+                                {showDeepDive ? "Hide Data Graphs" : "Visualize Emotional Arc 📈"}
+                            </button>
+                            {showDeepDive && (
+                                <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '2.5rem', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '20px' }}>
+                                    <div>
+                                        <h4 style={{ color: '#fbbf24', fontSize: '0.9rem', fontWeight: 600, marginBottom: '1rem' }}>Non-Verbal Timeline</h4>
+                                        <EmotionalArcChart expressions={expressions} type="face" />
+                                    </div>
+                                    <div>
+                                        <h4 style={{ color: '#60a5fa', fontSize: '0.9rem', fontWeight: 600, marginBottom: '1rem' }}>Vocal Inflexion Timeline</h4>
+                                        <EmotionalArcChart expressions={expressions} type="voice" />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* CLAUDE FEEDBACK CARDS */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                            {debrief.map((section, index) => (
+                                <section key={section.title} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "1.5rem", animation: "fadeSlideUp 0.4s ease forwards", animationDelay: `${0.2 + index * 0.1}s`, opacity: 0 }}>
+                                    <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "#fbbf24", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: '0.75rem' }}>
+                                        <span aria-hidden="true">{section.emoji}</span> {section.title}
+                                    </h2>
+                                    <p style={{ color: "rgba(255,255,255,0.85)", fontSize: "1rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{section.content}</p>
+                                </section>
                             ))}
                         </div>
-                    </section>
-                )}
 
-                {/* Debrief sections */}
-                {!isLoading && debrief.length > 0 && (
-                    <div className="flex flex-col gap-5">
-                        {debrief.map((section, index) => (
-                            <section
-                                key={section.title}
-                                aria-labelledby={`section-${section.title.replace(/\s+/g, "-")}`}
-                                style={{
-                                    background: "rgba(255,255,255,0.04)",
-                                    border: "1px solid rgba(255,255,255,0.08)",
-                                    borderRadius: "16px",
-                                    padding: "1.5rem",
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: "0.75rem",
-                                    animation: "fadeSlideUp 0.4s ease forwards",
-                                    animationDelay: `${0.1 + index * 0.1}s`,
-                                    opacity: 0.01,
-                                }}
-                            >
-                                <h2
-                                    id={`section-${section.title.replace(/\s+/g, "-")}`}
-                                    style={{
-                                        fontSize: "1rem",
-                                        fontWeight: 600,
-                                        color: "#fbbf24",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "0.5rem",
-                                    }}
-                                >
-                                    <span aria-hidden="true">{section.emoji}</span>
-                                    {section.title}
-                                </h2>
-                                <p
-                                    style={{
-                                        color: "rgba(255,255,255,0.85)",
-                                        fontSize: "1rem",
-                                        lineHeight: 1.75,
-                                        whiteSpace: "pre-wrap",
-                                    }}
-                                >
-                                    {section.content}
-                                </p>
-                            </section>
-                        ))}
-                    </div>
-                )}
-
-                {/* Fallback. Show raw if parsing failed */}
-                {!isLoading && debrief.length === 0 && rawDebrief && (
-                    <section
-                        style={{
-                            background: "rgba(255,255,255,0.04)",
-                            border: "1px solid rgba(255,255,255,0.08)",
-                            borderRadius: "16px",
-                            padding: "1.5rem",
-                        }}
-                    >
-                        <p
-                            style={{
-                                color: "rgba(255,255,255,0.85)",
-                                fontSize: "1rem",
-                                lineHeight: 1.75,
-                                whiteSpace: "pre-wrap",
-                            }}
-                        >
-                            {rawDebrief}
-                        </p>
-                    </section>
-                )}
-
-                {/* Rehearse again CTA */}
-                {!isLoading && (
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: "1rem",
-                            paddingTop: "1rem",
-                            flexWrap: "wrap",
-                        }}
-                    >
-                        <Link
-                            href="/setup"
-                            style={{
-                                background: "#fbbf24",
-                                color: "#000",
-                                fontWeight: 700,
-                                padding: "14px 32px",
-                                borderRadius: "999px",
-                                fontSize: "1rem",
-                                textDecoration: "none",
-                            }}
-                        >
-                            Rehearse Again →
-                        </Link>
-                        <Link
-                            href="/"
-                            style={{
-                                background: "rgba(255,255,255,0.07)",
-                                border: "1px solid rgba(255,255,255,0.12)",
-                                color: "white",
-                                fontWeight: 600,
-                                padding: "14px 32px",
-                                borderRadius: "999px",
-                                fontSize: "1rem",
-                                textDecoration: "none",
-                            }}
-                        >
-                            Back to Home
-                        </Link>
-                    </div>
+                        <div style={{ display: "flex", gap: "1rem", paddingTop: "2rem", flexWrap: "wrap" }}>
+                            <Link href="/setup" style={{ background: "#fbbf24", color: "#000", fontWeight: 700, padding: "14px 32px", borderRadius: "999px", textDecoration: "none" }}>Rehearse Again →</Link>
+                            <Link href="/" style={{ background: "rgba(255,255,255,0.07)", color: "white", padding: "14px 32px", borderRadius: "999px", textDecoration: "none" }}>Back to Home</Link>
+                        </div>
+                    </>
                 )}
             </div>
 
-            {/* Spinner animation */}
             <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-
-
-            <style>{`
-  @keyframes fadeSlideUp {
-    from { opacity: 0; transform: translateY(16px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-`}</style>
+                @keyframes spin { to { transform: rotate(360deg); } }
+                @keyframes fadeSlideUp { 
+                    from { opacity: 0; transform: translateY(20px); } 
+                    to { opacity: 1; transform: translateY(0); } 
+                }
+                .skip-link { position: absolute; top: -40px; left: 0; background: #fbbf24; color: black; padding: 8px; z-index: 100; transition: top 0.3s; }
+                .skip-link:focus { top: 0; }
+            `}</style>
         </main>
     );
 }

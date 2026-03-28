@@ -1,13 +1,24 @@
+"use client";
 import Link from "next/link";
 
 export default function Home() {
   return (
     <main
-      style={{ background: "#0e0e0e", color: "white", minHeight: "100vh" }}
+      style={{ background: "#141414", color: "white", minHeight: "100vh" }}
       className="flex flex-col"
     >
+      {/* Skip navigation - screen reader / keyboard users */}
+
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       {/* Nav */}
-      <nav className="px-8 py-6 flex items-center justify-between border-b border-white/5">
+      <nav
+        aria-label="Main navigation"
+        className="px-8 py-6 flex items-center justify-between"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+      >
         <span
           style={{
             fontFamily: "var(--font-display)",
@@ -15,18 +26,31 @@ export default function Home() {
             fontSize: "1.25rem",
             letterSpacing: "0.05em",
           }}
+          aria-label="Candour - AI Communication Coach"
         >
           Candour
         </span>
-        <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.7rem", letterSpacing: "0.2em" }}>
-          AI COMMUNICATION COACH
+        <span
+          aria-hidden="true"
+          style={{
+            color: "rgba(255,255,255,0.5)",
+            fontSize: "0.875rem",
+            letterSpacing: "0.1em",
+          }}
+        >
+          AI Communication Coach
         </span>
       </nav>
 
       {/* Hero */}
-      <section className="flex-1 flex flex-col items-center justify-center px-6 text-center py-24 relative">
-        {/* Glow */}
+      <section
+        id="main-content"
+        aria-labelledby="hero-heading"
+        className="flex-1 flex flex-col items-center justify-center px-6 text-center py-24 relative"
+      >
+        {/* Glow - decorative, hidden from screen readers */}
         <div
+          aria-hidden="true"
           style={{
             position: "absolute",
             width: "600px",
@@ -41,9 +65,10 @@ export default function Home() {
         <div className="relative flex flex-col items-center gap-6 max-w-2xl">
           {/* Badge */}
           <span
+            aria-hidden="true"
             style={{
-              fontSize: "0.7rem",
-              letterSpacing: "0.25em",
+              fontSize: "0.875rem",
+              letterSpacing: "0.15em",
               color: "#fbbf24",
               border: "1px solid rgba(251,191,36,0.2)",
               padding: "6px 16px",
@@ -55,9 +80,10 @@ export default function Home() {
 
           {/* Headline */}
           <h1
+            id="hero-heading"
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: "clamp(3rem, 8vw, 5.5rem)",
+              fontSize: "clamp(2.5rem, 8vw, 5.5rem)",
               lineHeight: 1.05,
               fontWeight: 700,
             }}
@@ -71,9 +97,9 @@ export default function Home() {
           {/* Subtext */}
           <p
             style={{
-              color: "rgba(255,255,255,0.75)",
-              fontSize: "1.1rem",
-              lineHeight: 1.7,
+              color: "rgba(255,255,255,0.85)",
+              fontSize: "1.125rem",
+              lineHeight: 1.8,
               maxWidth: "480px",
             }}
           >
@@ -89,73 +115,104 @@ export default function Home() {
               marginTop: "1rem",
               background: "#fbbf24",
               color: "#000",
-              fontWeight: 600,
-              padding: "14px 36px",
+              fontWeight: 700,
+              padding: "16px 40px",
               borderRadius: "999px",
-              fontSize: "0.9rem",
+              fontSize: "1rem",
               letterSpacing: "0.05em",
               textDecoration: "none",
-              transition: "background 0.2s",
+              display: "inline-block",
+              outline: "none",
             }}
+            aria-label="Start rehearsing a conversation"
           >
             Start Rehearsing →
           </Link>
         </div>
+
       </section>
 
-      {/* Feature strip */}
+
+      {/* Features */}
       <section
+        aria-labelledby="features-heading"
         style={{ borderTop: "1px solid rgba(255,255,255,0.075)" }}
-        className="px-8 py-12 grid grid-cols-1 md:grid-cols-3 gap-10 max-w-5xl mx-auto w-full"
+        className="px-8 py-12 max-w-5xl mx-auto w-full"
       >
-        {[
-          {
-            icon: "🎭",
-            title: "Roleplay Engine",
-            desc: "AI steps into the role of whoever you're nervous about facing — boss, doctor, landlord, parent.",
-          },
-          {
-            icon: "👁️",
-            title: "Expression Tracking",
-            desc: "Your camera reads your face in real time — so you know if you look as confident as you feel.",
-          },
-          {
-            icon: "📋",
-            title: "Honest Debrief",
-            desc: "After each session, get specific feedback on your words, your patterns, and your presence.",
-          },
-        ].map((f) => (
-          <div key={f.title} className="flex flex-col gap-3">
-            <span style={{ fontSize: "1.8rem" }}>{f.icon}</span>
-            <span
-              style={{
-                color: "#fbbf24",
-                fontWeight: 600,
-                fontSize: "0.9rem",
-                letterSpacing: "0.05em",
-              }}
-            >
-              {f.title}
-            </span>
-            <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "0.875rem", lineHeight: 1.7 }}>
-              {f.desc}
-            </p>
-          </div>
-        ))}
+        <h2
+          id="features-heading"
+          style={{
+            fontSize: "0.875rem",
+            color: "rgba(255,255,255,0.4)",
+            letterSpacing: "0.15em",
+            marginBottom: "2rem",
+            textAlign: "center",
+          }}
+        >
+          HOW IT WORKS
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+          {[
+            {
+              icon: "🎭",
+              title: "Roleplay Engine",
+              desc: "AI steps into the role of whoever you are nervous about facing — boss, doctor, landlord, or parent.",
+            },
+            {
+              icon: "👁️",
+              title: "Expression Tracking",
+              desc: "Your camera reads your face in real time so you know if you look as confident as you feel.",
+            },
+            {
+              icon: "📋",
+              title: "Honest Debrief",
+              desc: "After each session, get specific feedback on your words, your patterns, and your presence.",
+            },
+          ].map((f) => (
+            <article key={f.title} className="flex flex-col gap-3">
+              <span
+                aria-hidden="true"
+                style={{ fontSize: "2rem" }}
+              >
+                {f.icon}
+              </span>
+              <h3
+                style={{
+                  color: "#fbbf24",
+                  fontWeight: 600,
+                  fontSize: "1rem",
+                  letterSpacing: "0.03em",
+                }}
+              >
+                {f.title}
+              </h3>
+              <p
+                style={{
+                  color: "rgba(255,255,255,0.8)",
+                  fontSize: "1rem",
+                  lineHeight: 1.75,
+                }}
+              >
+                {f.desc}
+              </p>
+            </article>
+          ))}
+        </div>
       </section>
 
       {/* Footer */}
       <footer
         style={{
           borderTop: "1px solid rgba(255,255,255,0.05)",
-          color: "rgba(255,255,255,0.2)",
-          fontSize: "0.75rem",
+          color: "rgba(255,255,255,0.5)",
+          fontSize: "0.875rem",
           textAlign: "center",
           padding: "1.5rem",
         }}
       >
-        Built for ISAZI AI for Accessibility Hackathon
+        <p>Built for ISAZI AI for Accessibility Hackathon</p>
       </footer>
-    </main>
+    </main >
   );
 }

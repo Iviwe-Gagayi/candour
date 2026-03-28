@@ -12,3 +12,51 @@ body {
   color: white;
   font-family: var(--font-body), sans-serif;
 }
+
+.skip-link {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  background: #fbbf24;
+  color: #000;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 1rem;
+  z-index: 9999;
+  text-decoration: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.skip-link:focus {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.skip-link:focus {
+  transform: translateY(1rem);
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid #fbbf24;
+  outline-offset: 3px;
+}
+
+@keyframes bounce {
+
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  50% {
+    transform: translateX(-50%) translateY(8px);
+  }
+}

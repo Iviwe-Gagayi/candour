@@ -121,7 +121,7 @@ export function startAudioCapture(stream: MediaStream, socket: WebSocket): Media
     };
 
     // Grab a slice of audio every 3 seconds
-    recorder.start(3000);
+    recorder.start(1000);
     return recorder;
 }
 

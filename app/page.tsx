@@ -1,65 +1,161 @@
-import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-red-500">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main
+      style={{ background: "#0e0e0e", color: "white", minHeight: "100vh" }}
+      className="flex flex-col"
+    >
+      {/* Nav */}
+      <nav className="px-8 py-6 flex items-center justify-between border-b border-white/5">
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            color: "#fbbf24",
+            fontSize: "1.25rem",
+            letterSpacing: "0.05em",
+          }}
+        >
+          Candour
+        </span>
+        <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.7rem", letterSpacing: "0.2em" }}>
+          AI COMMUNICATION COACH
+        </span>
+      </nav>
+
+      {/* Hero */}
+      <section className="flex-1 flex flex-col items-center justify-center px-6 text-center py-24 relative">
+        {/* Glow */}
+        <div
+          style={{
+            position: "absolute",
+            width: "600px",
+            height: "600px",
+            borderRadius: "50%",
+            background: "rgba(251,191,36,0.07)",
+            filter: "blur(100px)",
+            pointerEvents: "none",
+          }}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+
+        <div className="relative flex flex-col items-center gap-6 max-w-2xl">
+          {/* Badge */}
+          <span
+            style={{
+              fontSize: "0.7rem",
+              letterSpacing: "0.25em",
+              color: "#fbbf24",
+              border: "1px solid rgba(251,191,36,0.2)",
+              padding: "6px 16px",
+              borderRadius: "999px",
+            }}
+          >
+            REHEARSE · REFLECT · IMPROVE
+          </span>
+
+          {/* Headline */}
+          <h1
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: "clamp(3rem, 8vw, 5.5rem)",
+              lineHeight: 1.05,
+              fontWeight: 700,
+            }}
+          >
+            Say it better,{" "}
+            <span style={{ color: "#fbbf24", fontStyle: "italic" }}>
+              every time.
+            </span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          {/* Subtext */}
+          <p
+            style={{
+              color: "rgba(255,255,255,0.75)",
+              fontSize: "1.1rem",
+              lineHeight: 1.7,
+              maxWidth: "480px",
+            }}
+          >
+            Rehearse difficult conversations with an AI that plays the other
+            person — then get honest feedback on what you said and how you
+            looked saying it.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+          {/* CTA */}
+          <Link
+            href="/setup"
+            style={{
+              marginTop: "1rem",
+              background: "#fbbf24",
+              color: "#000",
+              fontWeight: 600,
+              padding: "14px 36px",
+              borderRadius: "999px",
+              fontSize: "0.9rem",
+              letterSpacing: "0.05em",
+              textDecoration: "none",
+              transition: "background 0.2s",
+            }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            Start Rehearsing →
+          </Link>
         </div>
-      </main>
-    </div>
+      </section>
+
+      {/* Feature strip */}
+      <section
+        style={{ borderTop: "1px solid rgba(255,255,255,0.075)" }}
+        className="px-8 py-12 grid grid-cols-1 md:grid-cols-3 gap-10 max-w-5xl mx-auto w-full"
+      >
+        {[
+          {
+            icon: "🎭",
+            title: "Roleplay Engine",
+            desc: "AI steps into the role of whoever you're nervous about facing — boss, doctor, landlord, parent.",
+          },
+          {
+            icon: "👁️",
+            title: "Expression Tracking",
+            desc: "Your camera reads your face in real time — so you know if you look as confident as you feel.",
+          },
+          {
+            icon: "📋",
+            title: "Honest Debrief",
+            desc: "After each session, get specific feedback on your words, your patterns, and your presence.",
+          },
+        ].map((f) => (
+          <div key={f.title} className="flex flex-col gap-3">
+            <span style={{ fontSize: "1.8rem" }}>{f.icon}</span>
+            <span
+              style={{
+                color: "#fbbf24",
+                fontWeight: 600,
+                fontSize: "0.9rem",
+                letterSpacing: "0.05em",
+              }}
+            >
+              {f.title}
+            </span>
+            <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "0.875rem", lineHeight: 1.7 }}>
+              {f.desc}
+            </p>
+          </div>
+        ))}
+      </section>
+
+      {/* Footer */}
+      <footer
+        style={{
+          borderTop: "1px solid rgba(255,255,255,0.05)",
+          color: "rgba(255,255,255,0.2)",
+          fontSize: "0.75rem",
+          textAlign: "center",
+          padding: "1.5rem",
+        }}
+      >
+        Built for ISAZI AI for Accessibility Hackathon
+      </footer>
+    </main>
   );
 }

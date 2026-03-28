@@ -1,15 +1,14 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ScenarioConfig, buildSystemPrompt } from "@/lib/claude";
 import { speak, stripActions } from "@/lib/elevenlabs";
 import {
-    loadModels,
-    detectExpression,
-    expressionToEmoji,
-    expressionToLabel,
+    connectHume,
+    sendFrameToHume,
     ExpressionLog,
-} from "@/lib/faceapi";
+    startAudioCapture,
+} from "@/lib/hume";
 
 interface Message {
     role: "user" | "assistant";
@@ -28,14 +27,13 @@ export default function RehearsalPage() {
     const [micMode, setMicMode] = useState<"hold" | "click" | "auto">("hold");
     const [clickActive, setClickActive] = useState(false);
     const silenceTimer = useRef<NodeJS.Timeout | null>(null);
+    const socketRef = useRef<WebSocket | null>(null);
 
     const [scenario, setScenario] = useState<ScenarioConfig | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [expressionLog, setExpressionLog] = useState<ExpressionLog[]>([]);
-    const [currentExpression, setCurrentExpression] = useState<{
-        expression: string;
-        confidence: number;
-    } | null>(null);
+    const [currentExpression, setCurrentExpression] = useState<ExpressionLog | null>(null);
+    const [currentVoiceExpression, setCurrentVoiceExpression] = useState<ExpressionLog | null>(null);
     const [isListening, setIsListening] = useState(false);
     const [isThinking, setIsThinking] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
@@ -55,10 +53,11 @@ export default function RehearsalPage() {
         setScenario(JSON.parse(stored));
     }, [router]);
 
-    // Init camera and face api
+    // Init camera 
     async function initCamera() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            // Changed this line to explicitly grab audio too
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
                 videoRef.current.onloadedmetadata = () => {
@@ -66,29 +65,48 @@ export default function RehearsalPage() {
                     setCameraReady(true);
                 };
             }
-            await loadModels();
         } catch (e) {
-            console.error("Camera/model error:", e);
+            console.error("Camera error:", e);
             setCameraError(true);
         }
     }
 
-    // Start expression sampling once camera is ready
+
+    // Connect to Hume and start streaming frames & audio
     useEffect(() => {
-        if (!cameraReady) return;
-        expressionInterval.current = setInterval(async () => {
-            if (!videoRef.current) return;
-            const result = await detectExpression(videoRef.current);
-            if (result) {
-                setCurrentExpression(result);
-                setExpressionLog((prev) => [
-                    ...prev,
-                    { timestamp: Date.now(), ...result },
-                ]);
-            }
-        }, 3000);
+        if (!cameraReady || !videoRef.current?.srcObject) return;
+
+        let audioRecorder: MediaRecorder | null = null;
+
+        const socket = connectHume(
+            (log) => {
+                // Route the incoming data to the correct UI state
+                if (log.type === "face") setCurrentExpression(log);
+                if (log.type === "voice") setCurrentVoiceExpression(log);
+
+                setExpressionLog((prev) => [...prev, log]);
+            },
+            (err) => console.error("Hume Error:", err)
+        );
+        socketRef.current = socket;
+
+        socket.onopen = () => {
+            // 1. Start sending video frames every 3s
+            expressionInterval.current = setInterval(() => {
+                if (videoRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
+                    sendFrameToHume(videoRef.current, socketRef.current);
+                }
+            }, 1000);
+
+
+            const stream = videoRef.current!.srcObject as MediaStream;
+            audioRecorder = startAudioCapture(stream, socket);
+        };
+
         return () => {
             if (expressionInterval.current) clearInterval(expressionInterval.current);
+            if (audioRecorder && audioRecorder.state !== "inactive") audioRecorder.stop();
+            if (socketRef.current) socketRef.current.close();
         };
     }, [cameraReady]);
 
@@ -145,6 +163,7 @@ export default function RehearsalPage() {
                 const stream = videoRef.current.srcObject as MediaStream;
                 stream.getTracks().forEach(track => track.stop());
             }
+            if (socketRef.current) socketRef.current.close();
         };
     }, []);
 
@@ -231,12 +250,11 @@ export default function RehearsalPage() {
             if (final) fullTranscriptRef.current += " " + final;
             setTranscript((fullTranscriptRef.current + " " + interim).trim());
 
-            // Auto mode — reset silence timer on every result
             if (autoStop) {
                 if (silenceTimer.current) clearTimeout(silenceTimer.current);
                 silenceTimer.current = setTimeout(() => {
                     recognition.stop();
-                }, 2000); // 2s of silence triggers send
+                }, 2000);
             }
         };
 
@@ -252,7 +270,6 @@ export default function RehearsalPage() {
             setIsListening(false);
             setClickActive(false);
             if (silenceTimer.current) clearTimeout(silenceTimer.current);
-            // Small delay so final onresult fires before we read the ref
             setTimeout(() => handleSend(), 100);
         };
     }
@@ -266,7 +283,6 @@ export default function RehearsalPage() {
         recognitionRef.current = recognition;
         attachResultHandler(recognition, false);
         recognition.onstart = () => setIsListening(true);
-        // Override onend for hold — only send on button release, not auto
         recognition.onend = () => {
             setIsListening(false);
             setTimeout(() => handleSend(), 100);
@@ -281,11 +297,9 @@ export default function RehearsalPage() {
     // CLICK mode
     function handleClickToggle() {
         if (clickActive) {
-            // Stop
             recognitionRef.current?.stop();
             setClickActive(false);
         } else {
-            // Start
             window.speechSynthesis.cancel();
             setIsSpeaking(false);
             const recognition = createRecognition();
@@ -331,17 +345,79 @@ export default function RehearsalPage() {
             stream.getTracks().forEach((track) => track.stop());
         }
 
-        if (expressionInterval.current) {
-            clearInterval(expressionInterval.current);
-        }
+        if (expressionInterval.current) clearInterval(expressionInterval.current);
+        if (socketRef.current) socketRef.current.close();
 
         sessionStorage.setItem("candour_transcript", JSON.stringify(messages));
         sessionStorage.setItem("candour_expressions", JSON.stringify(expressionLog));
         router.push("/debrief");
     }
 
-    if (!scenario) return null;
+    const memoizedChatLog = useMemo(() => (
+        <div
+            role="log"
+            aria-live="polite"
+            aria-label="Conversation"
+            style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "2rem 1.5rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1.25rem",
+            }}
+        >
+            {messages.length === 0 && (
+                <div style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", marginTop: "4rem" }}>
+                    {isThinking ? "Starting your session..." : ""}
+                </div>
+            )}
 
+            {messages.map((msg, i) => (
+                <div
+                    key={i}
+                    style={{
+                        display: "flex",
+                        justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+                    }}
+                >
+                    <div
+                        style={{
+                            maxWidth: "70%",
+                            padding: "12px 16px",
+                            borderRadius: msg.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+                            background: msg.role === "user" ? "#fbbf24" : "rgba(255,255,255,0.07)",
+                            color: msg.role === "user" ? "#000" : "white",
+                            fontSize: "1rem",
+                            lineHeight: 1.6,
+                        }}
+                    >
+                        {msg.content}
+                    </div>
+                </div>
+            ))}
+
+            {isThinking && (
+                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                    <div
+                        aria-label="AI is thinking"
+                        style={{
+                            padding: "12px 20px",
+                            borderRadius: "18px 18px 18px 4px",
+                            background: "rgba(255,255,255,0.07)",
+                            color: "rgba(255,255,255,0.5)",
+                            fontSize: "1rem",
+                        }}
+                    >
+                        ···
+                    </div>
+                </div>
+            )}
+            <div ref={messagesEndRef} />
+        </div>
+    ), [messages, isThinking]);
+
+    if (!scenario) return null;
 
     return (
         <main
@@ -458,69 +534,8 @@ export default function RehearsalPage() {
 
                 {/* Chat */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                    <div
-                        role="log"
-                        aria-live="polite"
-                        aria-label="Conversation"
-                        style={{
-                            flex: 1,
-                            overflowY: "auto",
-                            padding: "2rem 1.5rem",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "1.25rem",
-                        }}
-                    >
-                        {messages.length === 0 && (
-                            <div style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", marginTop: "4rem" }}>
-                                {isThinking ? "Starting your session..." : ""}
-                            </div>
-                        )}
+                    {memoizedChatLog}
 
-                        {messages.map((msg, i) => (
-                            <div
-                                key={i}
-                                style={{
-                                    display: "flex",
-                                    justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        maxWidth: "70%",
-                                        padding: "12px 16px",
-                                        borderRadius: msg.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                                        background: msg.role === "user" ? "#fbbf24" : "rgba(255,255,255,0.07)",
-                                        color: msg.role === "user" ? "#000" : "white",
-                                        fontSize: "1rem",
-                                        lineHeight: 1.6,
-                                    }}
-                                >
-                                    {msg.content}
-                                </div>
-                            </div>
-                        ))}
-
-                        {isThinking && (
-                            <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                                <div
-                                    aria-label="AI is thinking"
-                                    style={{
-                                        padding: "12px 20px",
-                                        borderRadius: "18px 18px 18px 4px",
-                                        background: "rgba(255,255,255,0.07)",
-                                        color: "rgba(255,255,255,0.5)",
-                                        fontSize: "1rem",
-                                    }}
-                                >
-                                    ···
-                                </div>
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-
-                    {/* Voice input */}
                     {/* Voice input */}
                     <div
                         id="chat-input"
@@ -545,8 +560,9 @@ export default function RehearsalPage() {
                             ] as const).map((mode) => (
                                 <button
                                     key={mode.key}
-                                    onClick={() => setMicMode(mode.key)}
+                                    onClick={() => { setMicMode(mode.key); }}
                                     aria-pressed={micMode === mode.key}
+                                    className="active:scale-95 transition-all duration-150 ease-out select-none touch-manipulation"
                                     style={{
                                         padding: "4px 12px",
                                         borderRadius: "999px",
@@ -555,6 +571,7 @@ export default function RehearsalPage() {
                                         color: micMode === mode.key ? "#fbbf24" : "rgba(255,255,255,0.5)",
                                         fontSize: "0.8125rem",
                                         cursor: "pointer",
+                                        WebkitTapHighlightColor: "transparent"
                                     }}
                                 >
                                     {mode.label}
@@ -699,30 +716,65 @@ export default function RehearsalPage() {
                         )}
                     </div>
 
-                    {/* Expression indicator */}
+                    {/* NEW HUME EXPRESSION INDICATOR */}
                     {currentExpression && (
                         <div
                             aria-live="polite"
-                            aria-label={`Current expression: ${expressionToLabel(currentExpression.expression)}`}
+                            aria-label={`Current behavior: ${currentExpression.actionableLabel}`}
                             style={{
                                 background: "rgba(255,255,255,0.05)",
                                 borderRadius: "10px",
-                                padding: "12px",
+                                padding: "16px",
                                 display: "flex",
                                 flexDirection: "column",
-                                gap: "4px",
                             }}
                         >
-                            <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", letterSpacing: "0.08em" }}>
-                                YOU LOOK
+                            <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", letterSpacing: "0.08em", marginBottom: "4px" }}>
+                                BEHAVIORAL INSIGHT
                             </span>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                <span aria-hidden="true" style={{ fontSize: "1.5rem" }}>
-                                    {expressionToEmoji(currentExpression.expression)}
-                                </span>
-                                <span style={{ fontWeight: 600, fontSize: "1rem", color: "#fbbf24" }}>
-                                    {expressionToLabel(currentExpression.expression)}
-                                </span>
+
+                            <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "#fbbf24", lineHeight: 1.4, margin: "4px 0" }}>
+                                {currentExpression.actionableLabel}
+                            </p>
+
+                            {/* Render the top 2 underlying specific emotions as sub-tags */}
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "8px" }}>
+                                {currentExpression.topEmotions.slice(0, 2).map((emo, i) => (
+                                    <span key={i} style={{ fontSize: "0.7rem", padding: "2px 6px", background: "rgba(255,255,255,0.1)", borderRadius: "4px", color: "white" }}>
+                                        {emo.name} {(emo.score * 100).toFixed(0)}%
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NEW HUME VOICE INDICATOR */}
+                    {currentVoiceExpression && (
+                        <div
+                            aria-live="polite"
+                            aria-label={`Current vocal tone: ${currentVoiceExpression.actionableLabel}`}
+                            style={{
+                                background: "rgba(255,255,255,0.05)",
+                                borderRadius: "10px",
+                                padding: "16px",
+                                display: "flex",
+                                flexDirection: "column",
+                            }}
+                        >
+                            <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.4)", letterSpacing: "0.08em", marginBottom: "4px" }}>
+                                VOCAL TONE
+                            </span>
+
+                            <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "#60a5fa", lineHeight: 1.4, margin: "4px 0" }}>
+                                {currentVoiceExpression.actionableLabel}
+                            </p>
+
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "8px" }}>
+                                {currentVoiceExpression.topEmotions.slice(0, 2).map((emo, i) => (
+                                    <span key={i} style={{ fontSize: "0.7rem", padding: "2px 6px", background: "rgba(255,255,255,0.1)", borderRadius: "4px", color: "white" }}>
+                                        {emo.name} {(emo.score * 100).toFixed(0)}%
+                                    </span>
+                                ))}
                             </div>
                         </div>
                     )}
@@ -740,10 +792,10 @@ export default function RehearsalPage() {
                             ].map((option) => (
                                 <button
                                     key={option.label}
-                                    onClick={() => setSpeechRate(option.value)}
+                                    onClick={() => { setSpeechRate(option.value); }}
                                     aria-pressed={speechRate === option.value}
+                                    className="flex-1 active:scale-95 transition-all duration-150 ease-out select-none touch-manipulation"
                                     style={{
-                                        flex: 1,
                                         padding: "6px 4px",
                                         borderRadius: "8px",
                                         border: `1px solid ${speechRate === option.value ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.08)"}`,
@@ -751,6 +803,7 @@ export default function RehearsalPage() {
                                         color: speechRate === option.value ? "#fbbf24" : "rgba(255,255,255,0.6)",
                                         fontSize: "0.8125rem",
                                         cursor: "pointer",
+                                        WebkitTapHighlightColor: "transparent"
                                     }}
                                 >
                                     {option.label}

@@ -53,3 +53,13 @@ button:focus-visible {
 ::placeholder {
   color: rgba(255, 255, 255, 0.45);
 }
+
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button:active {
+  transform: scale(0.96);
+  transition: transform 0.05s ease;
+}

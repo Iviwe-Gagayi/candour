@@ -76,7 +76,7 @@ export default function RehearsalPage() {
     useEffect(() => {
         if (!cameraReady || !videoRef.current?.srcObject) return;
 
-        let audioRecorder: MediaRecorder | null = null;
+        let audioRecorder: { stop: () => void } | null = null;
 
         const socket = connectHume(
             (log) => {
@@ -91,7 +91,7 @@ export default function RehearsalPage() {
         socketRef.current = socket;
 
         socket.onopen = () => {
-            // 1. Start sending video frames every 3s
+            // 1. Start sending video frames every 1s
             expressionInterval.current = setInterval(() => {
                 if (videoRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
                     sendFrameToHume(videoRef.current, socketRef.current);
@@ -105,7 +105,7 @@ export default function RehearsalPage() {
 
         return () => {
             if (expressionInterval.current) clearInterval(expressionInterval.current);
-            if (audioRecorder && audioRecorder.state !== "inactive") audioRecorder.stop();
+            if (audioRecorder) audioRecorder.stop();
             if (socketRef.current) socketRef.current.close();
         };
     }, [cameraReady]);

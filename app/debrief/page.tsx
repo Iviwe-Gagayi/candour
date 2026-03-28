@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ScenarioConfig, buildDebriefPrompt } from "@/lib/claude";
-import { ExpressionLog } from "@/lib/faceapi";
+import { ExpressionLog } from "@/lib/hume";
 
 interface Message {
     role: "user" | "assistant";
@@ -105,7 +105,7 @@ export default function DebriefPage() {
                 body: JSON.stringify({
                     messages: [{ role: "user", content: prompt }],
                     systemPrompt:
-                        "You are a warm, specific, and honest communication coach. Always structure your response with these exact bold headers: **Overall**, **What worked**, **What to work on**, **Expression insights**, **One thing to practise**.",
+                        "You are a warm, highly literal, and specific communication coach. You excel at translating ambiguous social data (like facial expressions and vocal tone) into explicit, actionable feedback. Always structure your response with these exact bold headers: **Overall**, **What worked**, **What to work on**, **Expression insights**, **One thing to practise**.",
                 }),
             });
 

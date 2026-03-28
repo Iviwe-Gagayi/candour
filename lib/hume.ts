@@ -25,10 +25,18 @@ export function connectHume(
     socket.onmessage = (event) => {
         const response = JSON.parse(event.data);
 
-        console.log("Hume Response:", response)
+        const models = response.models || response;
+
+        // reducing the weight of Boredom/Tiredness by 40%
+        const applyCalibration = (emotions: HumeEmotion[]) => {
+            return emotions.map(e => ({
+                ...e,
+                score: ["Boredom", "Tiredness", "Sadness"].includes(e.name) ? e.score * 0.6 : e.score
+            })).sort((a, b) => b.score - a.score).slice(0, 3);
+        };
 
         // Handle Face Data
-        const facePredictions = response.face?.predictions;
+        const facePredictions = models.face?.predictions;
         if (facePredictions && facePredictions.length > 0) {
             const topFace = facePredictions[0].emotions
                 .sort((a: HumeEmotion, b: HumeEmotion) => b.score - a.score)
@@ -43,7 +51,7 @@ export function connectHume(
         }
 
         // Handle Voice (Prosody) Data
-        const prosodyPredictions = response.prosody?.predictions;
+        const prosodyPredictions = models.prosody?.predictions;
         if (prosodyPredictions && prosodyPredictions.length > 0) {
             const topVoice = prosodyPredictions[0].emotions
                 .sort((a: HumeEmotion, b: HumeEmotion) => b.score - a.score)
@@ -89,40 +97,50 @@ export function sendFrameToHume(videoElement: HTMLVideoElement, socket: WebSocke
 }
 
 // Capturing audio chunks and send to Hume's Prosody model
-export function startAudioCapture(stream: MediaStream, socket: WebSocket): MediaRecorder | null {
-    // 1. Isolate ONLY the audio tracks so we don't accidentally send video data
+export function startAudioCapture(stream: MediaStream, socket: WebSocket) {
     const audioTracks = stream.getAudioTracks();
-    if (audioTracks.length === 0) return null;
+    if (audioTracks.length === 0) return { stop: () => { } };
 
     const audioStream = new MediaStream(audioTracks);
 
-    // 2. Explicitly request an audio-only format (Safari needs mp4, Chrome prefers webm)
     let mimeType = 'audio/webm';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'audio/mp4';
     }
 
-    const recorder = new MediaRecorder(audioStream, { mimeType });
+    const recordAndSend = () => {
+        if (socket.readyState !== WebSocket.OPEN) return;
 
-    recorder.ondataavailable = async (e) => {
-        if (e.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.readAsDataURL(e.data);
-            reader.onloadend = () => {
-                const base64Audio = (reader.result as string).split(",")[1];
+        const recorder = new MediaRecorder(audioStream, { mimeType });
 
-                // 3. Send the clean audio base64 to Hume
-                socket.send(JSON.stringify({
-                    data: base64Audio,
-                    models: { prosody: {} } // Request voice analysis
-                }));
-            };
-        }
+        recorder.ondataavailable = async (e) => {
+            if (e.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+                const reader = new FileReader();
+                reader.readAsDataURL(e.data);
+                reader.onloadend = () => {
+                    const base64Audio = (reader.result as string).split(",")[1];
+                    socket.send(JSON.stringify({
+                        data: base64Audio,
+                        models: { prosody: {} }
+                    }));
+                };
+            }
+        };
+
+        recorder.start();
+
+        // Stop recording after 2 seconds to finalize the file and give it a valid header
+        setTimeout(() => {
+            if (recorder.state === "recording") recorder.stop();
+        }, 2000);
     };
 
-    // Grab a slice of audio every 3 seconds
-    recorder.start(1000);
-    return recorder;
+    // Fire immediately, then repeat every 3 seconds
+    recordAndSend();
+    const interval = setInterval(recordAndSend, 3000);
+
+    // Return a simple stop function to clean up the interval later
+    return { stop: () => clearInterval(interval) };
 }
 
 function generateFaceLabel(emotions: HumeEmotion[]): string {

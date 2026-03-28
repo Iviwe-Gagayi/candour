@@ -35,37 +35,57 @@ Begin the conversation naturally as ${scenario.personRole} would — with a gree
 }
 
 export function buildDebriefPrompt(
-    transcript: { role: string; content: string }[],
-    expressionLog: { timestamp: number; expression: string; confidence: number }[],
+    transcript: any[],
+    expressions: any[],
     scenario: ScenarioConfig
-): string {
-    const transcriptText = transcript
-        .map((m) => `${m.role === "user" ? scenario.userName : scenario.personRole}: ${m.content}`)
+) {
+    // 1. Separate the expression log into Face and Voice timelines
+    const faceLogs = expressions.filter(e => e.type === "face");
+    const voiceLogs = expressions.filter(e => e.type === "voice");
+
+    // 2. Format the data for Claude
+    const transcriptText = transcript.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n");
+
+    // We sample every 5th log (approx every 5 seconds) to keep the prompt size manageable
+    const faceTimeline = faceLogs.filter((_, i) => i % 5 === 0)
+        .map(e => `- ${e.actionableLabel} (Top traits: ${e.topEmotions.map((em: any) => em.name).join(", ")})`)
         .join("\n");
 
-    const expressionSummary = expressionLog
-        .map((e) => `${Math.round(e.timestamp / 1000)}s: ${e.expression} (${Math.round(e.confidence * 100)}%)`)
+    const voiceTimeline = voiceLogs.filter((_, i) => i % 5 === 0)
+        .map(e => `- ${e.actionableLabel} (Top traits: ${e.topEmotions.map((em: any) => em.name).join(", ")})`)
         .join("\n");
 
-    return `You are a warm, honest communication coach. Analyse this conversation rehearsal and give specific, actionable feedback.
+    return `
+You are an expert communication coach specializing in helping individuals, including neurodivergent adults, master workplace and social communication.
 
-## The scenario
-${scenario.situation}
-${scenario.userName} was speaking to: ${scenario.personRole}
-Their goal: ${scenario.userGoal}
+The user just completed a roleplay rehearsal.
+Scenario: ${scenario.situation}
+Role: ${scenario.personRole}
+Goal: ${scenario.userGoal}
 
-## Conversation transcript
+Here is the transcript of the conversation:
+<transcript>
 ${transcriptText}
+</transcript>
 
-## Facial expression log (sampled every 3 seconds)
-${expressionSummary}
+Here is the timeline of the user's FACIAL expressions during the session:
+<face_timeline>
+${faceTimeline || "No face data available."}
+</face_timeline>
 
-## Your debrief should cover:
-1. **Overall** — one sentence summary of how it went
-2. **What worked** — 2-3 specific things they did well, reference actual moments from the transcript
-3. **What to work on** — 2-3 specific improvements, be direct but kind
-4. **Expression insights** — what their face was doing at key moments, and whether it matched what they were saying
-5. **One thing to practise** — the single most impactful thing to focus on next time
+Here is the timeline of the user's VOCAL tone during the session:
+<voice_timeline>
+${voiceTimeline || "No voice data available."}
+</voice_timeline>
 
-Keep the tone warm, specific, and encouraging. Never generic. Reference actual lines from the conversation.`;
+Your task is to provide a constructive, literal, and highly specific debrief. Pay special attention to the alignment between their words, their face, and their voice. Did they sound confident but look tense? Did they give a great answer but sound bored?
+
+You MUST format your response using exactly these five bolded headers. Do not use any other formatting for the headers.
+
+**Overall**: Provide a 2-sentence summary of how they handled the scenario.
+**What worked**: One specific thing they did well (quote the transcript or reference a specific positive behavior).
+**What to work on**: One specific area for improvement. Be direct and literal. 
+**Expression insights**: Analyze the relationship between their face and voice data. Point out specific habits (e.g., "When they asked a difficult question, your vocal tone showed Anxiety, and your face showed Confusion"). Give practical advice on what to do with their face/voice next time.
+**One thing to practise**: A single, actionable instruction for their next rehearsal.
+`;
 }

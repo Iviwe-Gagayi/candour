@@ -5,7 +5,7 @@ const client = new ElevenLabsClient({
     apiKey: process.env.ELEVENLABS_API_KEY,
 });
 
-// Voices:
+//Voices to try:
 // Rachel (calm, professional): 21m00Tcm4TlvDq8ikWAM
 // Adam (authoritative, male): pNInz6obpgDQGcFmaJgB
 // Bella (warm, friendly): EXAVITQu4vr4xnSDxMaL

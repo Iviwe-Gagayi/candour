@@ -29,7 +29,6 @@ ${scenario.situation}
 ## The user's goal
 ${scenario.userGoal}
 
-##Convo context
 ${scenario.context ? `## Additional context\n${scenario.context}` : ""}
 
 Begin the conversation naturally as ${scenario.personRole} would — with a greeting or opening statement appropriate to the situation.`;

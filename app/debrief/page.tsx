@@ -276,6 +276,8 @@ export default function DebriefPage() {
                             display: "flex",
                             flexDirection: "column",
                             gap: "1rem",
+                            animation: "fadeSlideUp 0.4s ease forwards",
+                            opacity: 0.01,
                         }}
                     >
                         <h2
@@ -304,6 +306,7 @@ export default function DebriefPage() {
                                         display: "flex",
                                         gap: "0.5rem",
                                         alignItems: "center",
+
                                     }}
                                 >
                                     <span>"{word}"</span>
@@ -328,7 +331,7 @@ export default function DebriefPage() {
                 {/* Debrief sections */}
                 {!isLoading && debrief.length > 0 && (
                     <div className="flex flex-col gap-5">
-                        {debrief.map((section) => (
+                        {debrief.map((section, index) => (
                             <section
                                 key={section.title}
                                 aria-labelledby={`section-${section.title.replace(/\s+/g, "-")}`}
@@ -340,6 +343,9 @@ export default function DebriefPage() {
                                     display: "flex",
                                     flexDirection: "column",
                                     gap: "0.75rem",
+                                    animation: "fadeSlideUp 0.4s ease forwards",
+                                    animationDelay: `${0.1 + index * 0.1}s`,
+                                    opacity: 0.01,
                                 }}
                             >
                                 <h2
@@ -443,6 +449,14 @@ export default function DebriefPage() {
           to { transform: rotate(360deg); }
         }
       `}</style>
+
+
+            <style>{`
+  @keyframes fadeSlideUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+`}</style>
         </main>
     );
 }

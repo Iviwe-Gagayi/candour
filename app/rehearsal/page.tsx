@@ -17,6 +17,7 @@ interface Message {
 }
 
 export default function RehearsalPage() {
+    const [isInitialising, setIsInitialising] = useState(true);
     const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -60,8 +61,10 @@ export default function RehearsalPage() {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                await videoRef.current.play();
-                setCameraReady(true);
+                videoRef.current.onloadedmetadata = () => {
+                    videoRef.current?.play();
+                    setCameraReady(true);
+                };
             }
             await loadModels();
         } catch (e) {
@@ -120,6 +123,7 @@ export default function RehearsalPage() {
 
             const aiMessage: Message = { role: "assistant", content: data.message };
             setMessages([aiMessage]);
+            setIsInitialising(false);
             setIsThinking(false);
             setIsSpeaking(true);
             await speak(stripActions(data.message), undefined, speechRate);
@@ -137,7 +141,7 @@ export default function RehearsalPage() {
     useEffect(() => {
         initCamera();
         return () => {
-            if (videoRef.current && videoRef.current.srcObject) {
+            if (videoRef.current?.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
                 stream.getTracks().forEach(track => track.stop());
             }
@@ -338,11 +342,45 @@ export default function RehearsalPage() {
 
     if (!scenario) return null;
 
+
     return (
         <main
             style={{ background: "#141414", color: "white", height: "100vh" }}
             className="flex flex-col"
         >
+            {/* Loading overlay */}
+            {isInitialising && (
+                <div style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "#141414",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "1.5rem",
+                    zIndex: 9999,
+                }}>
+                    <div
+                        aria-hidden="true"
+                        style={{
+                            width: "48px", height: "48px", borderRadius: "50%",
+                            border: "3px solid rgba(255,255,255,0.1)",
+                            borderTop: "3px solid #fbbf24",
+                            animation: "spin 1s linear infinite",
+                        }}
+                    />
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", color: "#fbbf24" }}>
+                            Candour
+                        </span>
+                        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "1rem" }}>
+                            Setting up your rehearsal...
+                        </p>
+                    </div>
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+            )}
             <a href="#chat-input" className="skip-link">Skip to chat input</a>
 
             {/* Nav */}

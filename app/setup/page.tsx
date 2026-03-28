@@ -83,9 +83,15 @@ export default function SetupPage() {
 
     function handleSubmit() {
         if (!validate()) return;
+        // Clear previous session data
+        sessionStorage.removeItem("candour_transcript");
+        sessionStorage.removeItem("candour_expressions");
+        sessionStorage.removeItem("candour_fillers");
         sessionStorage.setItem("candour_scenario", JSON.stringify(scenario));
         router.push("/rehearsal");
     }
+
+
 
     return (
         <main

@@ -215,7 +215,6 @@ export default function RehearsalPage() {
         };
 
         recognition.onerror = (e: any) => {
-            // Ignore no-speech errors — these happen on pauses, not real errors
             if (e.error !== "no-speech") {
                 console.error("Speech recognition error:", e.error);
                 setIsListening(false);

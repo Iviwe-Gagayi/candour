@@ -39,6 +39,7 @@ export default function RehearsalPage() {
     const [cameraError, setCameraError] = useState(false);
     const [transcript, setTranscript] = useState("");
     const [sessionStarted, setSessionStarted] = useState(false);
+    const [speechRate, setSpeechRate] = useState(1);
 
     // Load scenario from sessionStorage
     useEffect(() => {
@@ -90,16 +91,14 @@ export default function RehearsalPage() {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Start the session.  Get Claude's opening line
+    // Start the session — get Claude's opening line
     const startSession = useCallback(async () => {
         if (!scenario || sessionStarted) return;
-        console.log("Starting session with scenario:", scenario);
         setSessionStarted(true);
         setIsThinking(true);
 
         try {
             const systemPrompt = buildSystemPrompt(scenario);
-            console.log("Calling /api/chat...");
             const response = await fetch("/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -108,9 +107,7 @@ export default function RehearsalPage() {
                     systemPrompt,
                 }),
             });
-            console.log("Response status:", response.status);
             const data = await response.json();
-            console.log("Response data:", data);
 
             if (data.error) {
                 console.error("API error:", data.error);
@@ -122,18 +119,17 @@ export default function RehearsalPage() {
             setMessages([aiMessage]);
             setIsThinking(false);
             setIsSpeaking(true);
-            await speak(data.message);
+            await speak(data.message, undefined, speechRate);
             setIsSpeaking(false);
         } catch (e) {
             console.error("startSession failed:", e);
             setIsThinking(false);
         }
-    }, [scenario, sessionStarted]);
+    }, [scenario, sessionStarted, speechRate]);
 
     useEffect(() => {
         if (scenario) startSession();
     }, [scenario, startSession]);
-
 
     useEffect(() => {
         initCamera();
@@ -164,11 +160,9 @@ export default function RehearsalPage() {
         setMessages((prev) => [...prev, aiMessage]);
         setIsThinking(false);
         setIsSpeaking(true);
-        await speak(data.message);
+        await speak(data.message, undefined, speechRate);
         setIsSpeaking(false);
     }
-
-    // Voice input
 
     const fillerWords = [
         "um", "umm", "ummm",
@@ -180,6 +174,8 @@ export default function RehearsalPage() {
     ];
 
     function startListening() {
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
         const SpeechRecognition =
             (window as any).SpeechRecognition ||
             (window as any).webkitSpeechRecognition;
@@ -187,7 +183,7 @@ export default function RehearsalPage() {
 
         const recognition = new SpeechRecognition();
         recognitionRef.current = recognition;
-        recognition.continuous = true;        // keeps going through pauses
+        recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = "en-US";
 
@@ -204,7 +200,6 @@ export default function RehearsalPage() {
                 const t = e.results[i][0].transcript;
                 if (e.results[i].isFinal) {
                     final += t;
-                    // Notice we removed the filler checking from here!
                 } else {
                     interim += t;
                 }
@@ -231,14 +226,12 @@ export default function RehearsalPage() {
         const finalText = fullTranscriptRef.current.trim();
 
         if (finalText) {
-
             const currentFillers: string[] = [];
             fillerWords.forEach((filler) => {
                 const regex = new RegExp(`\\b${filler}\\b`, "gi");
                 const matches = finalText.match(regex);
                 if (matches) currentFillers.push(...matches);
             });
-
 
             const existingFillers = JSON.parse(sessionStorage.getItem("candour_fillers") || "[]");
             sessionStorage.setItem("candour_fillers", JSON.stringify([...existingFillers, ...currentFillers]));
@@ -249,13 +242,23 @@ export default function RehearsalPage() {
         }
     }
 
-    // Break character
     async function breakCharacter() {
         await sendMessage("Break character — give me one quick coaching tip on how I'm doing so far.");
     }
 
-    // End session
     function endSession() {
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
+
+        if (videoRef.current?.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach((track) => track.stop());
+        }
+
+        if (expressionInterval.current) {
+            clearInterval(expressionInterval.current);
+        }
+
         sessionStorage.setItem("candour_transcript", JSON.stringify(messages));
         sessionStorage.setItem("candour_expressions", JSON.stringify(expressionLog));
         router.push("/debrief");
@@ -282,21 +285,13 @@ export default function RehearsalPage() {
                     flexShrink: 0,
                 }}
             >
-                <span
-                    style={{
-                        fontFamily: "var(--font-display)",
-                        color: "#fbbf24",
-                        fontSize: "1.25rem",
-                    }}
-                >
+                <span style={{ fontFamily: "var(--font-display)", color: "#fbbf24", fontSize: "1.25rem" }}>
                     Candour
                 </span>
-
                 <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem" }}>
                     Rehearsing with:{" "}
                     <strong style={{ color: "white" }}>{scenario.personRole}</strong>
                 </span>
-
                 <div style={{ display: "flex", gap: "0.75rem" }}>
                     <button
                         onClick={breakCharacter}
@@ -339,8 +334,6 @@ export default function RehearsalPage() {
 
                 {/* Chat */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-
-                    {/* Messages */}
                     <div
                         role="log"
                         aria-live="polite"
@@ -400,7 +393,6 @@ export default function RehearsalPage() {
                                 </div>
                             </div>
                         )}
-
                         <div ref={messagesEndRef} />
                     </div>
 
@@ -416,22 +408,13 @@ export default function RehearsalPage() {
                             flexShrink: 0,
                         }}
                     >
-                        {transcript && (
-                            <div style={{
-                                flex: 1,
-                                color: "rgba(255,255,255,0.5)",
-                                fontSize: "0.9375rem",
-                                fontStyle: "italic",
-                            }}>
-                                "{transcript}"
-                            </div>
-                        )}
-
-                        {!transcript && (
-                            <div style={{ flex: 1, color: "rgba(255,255,255,0.25)", fontSize: "0.9375rem" }}>
-                                {isListening ? "Listening..." : isSpeaking ? "Speaking..." : "Press and hold to speak"}
-                            </div>
-                        )}
+                        <div style={{ flex: 1, color: transcript ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.25)", fontSize: "0.9375rem", fontStyle: transcript ? "italic" : "normal" }}>
+                            {transcript
+                                ? `"${transcript}"`
+                                : isListening ? "Listening..."
+                                    : isSpeaking ? "Speaking..."
+                                        : "Press and hold to speak"}
+                        </div>
 
                         <button
                             onMouseDown={startListening}
@@ -460,7 +443,7 @@ export default function RehearsalPage() {
                     </div>
                 </div>
 
-                {/* Right sidebar — camera + expression */}
+                {/* Right sidebar */}
                 <div
                     aria-label="Expression tracking panel"
                     style={{
@@ -500,7 +483,7 @@ export default function RehearsalPage() {
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center",
-                                    color: "rgba(255,255,255,0.4)",
+                                    color: "rgba(255,255,255,0.6)",
                                     fontSize: "0.875rem",
                                     textAlign: "center",
                                     padding: "1rem",
@@ -539,10 +522,42 @@ export default function RehearsalPage() {
                         </div>
                     )}
 
+                    {/* Speech speed */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em" }}>
+                            SPEECH SPEED
+                        </span>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                            {[
+                                { label: "Slow", value: 0.5 },
+                                { label: "Normal", value: 1 },
+                                { label: "Fast", value: 1.5 },
+                            ].map((option) => (
+                                <button
+                                    key={option.label}
+                                    onClick={() => setSpeechRate(option.value)}
+                                    aria-pressed={speechRate === option.value}
+                                    style={{
+                                        flex: 1,
+                                        padding: "6px 4px",
+                                        borderRadius: "8px",
+                                        border: `1px solid ${speechRate === option.value ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.08)"}`,
+                                        background: speechRate === option.value ? "rgba(251,191,36,0.1)" : "transparent",
+                                        color: speechRate === option.value ? "#fbbf24" : "rgba(255,255,255,0.6)",
+                                        fontSize: "0.8125rem",
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Tips */}
                     <div style={{ marginTop: "auto" }}>
-                        <p style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.35)", lineHeight: 1.6 }}>
-                            Hold the mic button to speak. Say "break character" or use the button above for a coaching tip.
+                        <p style={{ fontSize: "0.8125rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.6 }}>
+                            Hold the mic button to speak. Use the coaching tip button to pause and get feedback.
                         </p>
                     </div>
                 </div>

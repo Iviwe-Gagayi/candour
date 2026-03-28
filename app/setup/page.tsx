@@ -141,7 +141,7 @@ export default function SetupPage() {
 
                 {/* Presets */}
                 <div className="flex flex-col gap-3">
-                    <span style={labelStyle}>Quick start — pick a scenario</span>
+                    <span style={labelStyle}>Quick start: pick a scenario</span>
                     <div className="flex flex-col gap-2">
                         {PRESETS.map((preset, i) => (
                             <button
@@ -275,6 +275,23 @@ export default function SetupPage() {
                             value={scenario.personPersonality}
                             onChange={(e) => setScenario((p) => ({ ...p, personPersonality: e.target.value }))}
                             style={inputStyle}
+                            onFocus={(e) => (e.target.style.borderColor = "#fbbf24")}
+                            onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.1)")}
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="context" style={labelStyle}>
+                            Any background context?{" "}
+                            <span style={{ color: "rgba(255,255,255,0.55)", fontWeight: 400 }}>(optional)</span>
+                        </label>
+                        <textarea
+                            id="context"
+                            rows={3}
+                            placeholder="e.g. I've already asked for a raise once before and was told to wait 6 months. It's now been 8 months."
+                            value={scenario.context || ""}
+                            onChange={(e) => setScenario((p) => ({ ...p, context: e.target.value }))}
+                            style={{ ...inputStyle, resize: "vertical" }}
                             onFocus={(e) => (e.target.style.borderColor = "#fbbf24")}
                             onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.1)")}
                         />

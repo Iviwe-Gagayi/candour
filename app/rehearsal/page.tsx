@@ -78,6 +78,7 @@ export default function RehearsalPage() {
 
         let audioRecorder: { stop: () => void } | null = null;
 
+        console.log("🔌 Attempting to connect to Hume...");
         const socket = connectHume(
             (log) => {
                 // Route the incoming data to the correct UI state
@@ -86,11 +87,14 @@ export default function RehearsalPage() {
 
                 setExpressionLog((prev) => [...prev, log]);
             },
-            (err) => console.error("Hume Error:", err)
+            (err) => console.error("❌ Hume Error:", err)
         );
         socketRef.current = socket;
 
-        socket.onopen = () => {
+
+        socket.addEventListener("open", () => {
+            console.log("✅ Hume WebSocket Opened Successfully!");
+
             // 1. Start sending video frames every 1s
             expressionInterval.current = setInterval(() => {
                 if (videoRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
@@ -98,11 +102,14 @@ export default function RehearsalPage() {
                 }
             }, 1000);
 
-
+            // Start audio capture
             const stream = videoRef.current!.srcObject as MediaStream;
             audioRecorder = startAudioCapture(stream, socket);
-        };
+        });
 
+        socket.addEventListener("close", (event) => {
+            console.log(`🛑 Hume WebSocket Closed. Code: ${event.code}, Reason: ${event.reason || "No reason provided by Hume"}`);
+        });
         return () => {
             if (expressionInterval.current) clearInterval(expressionInterval.current);
             if (audioRecorder) audioRecorder.stop();
@@ -144,7 +151,8 @@ export default function RehearsalPage() {
             setIsInitialising(false);
             setIsThinking(false);
             setIsSpeaking(true);
-            await speak(stripActions(data.message), undefined, speechRate);
+            const voiceToUse = scenario.voiceId === "auto" ? undefined : scenario.voiceId;
+            await speak(stripActions(data.message), voiceToUse, speechRate);
             setIsSpeaking(false);
         } catch (e) {
             console.error("startSession failed:", e);
@@ -186,7 +194,8 @@ export default function RehearsalPage() {
         setMessages((prev) => [...prev, aiMessage]);
         setIsThinking(false);
         setIsSpeaking(true);
-        await speak(stripActions(data.message), undefined, speechRate);
+        const voiceToUse = scenario.voiceId === "auto" ? undefined : scenario.voiceId;
+        await speak(stripActions(data.message), voiceToUse, speechRate);
         setIsSpeaking(false);
     }
 
@@ -788,7 +797,7 @@ export default function RehearsalPage() {
                             {[
                                 { label: "Slow", value: 0.5 },
                                 { label: "Normal", value: 1 },
-                                { label: "Fast", value: 1.5 },
+                                { label: "Fast", value: 2.5 },
                             ].map((option) => (
                                 <button
                                     key={option.label}

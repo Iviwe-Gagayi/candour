@@ -5,6 +5,7 @@ export interface ScenarioConfig {
     userGoal: string;
     userName: string;
     context?: string;
+    voiceId?: string;
 }
 
 export function buildSystemPrompt(scenario: ScenarioConfig): string {

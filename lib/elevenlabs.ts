@@ -1,21 +1,41 @@
+// Create a shared AudioContext outside the function so it persists
+let sharedAudioContext: AudioContext | null = null;
+
 export async function speakWithElevenLabs(
     text: string,
     voiceId?: string
 ): Promise<void> {
+    // Fallback for "Auto" voice so the API doesn't crash
+    const actualVoiceId = (voiceId && voiceId !== "auto") ? voiceId : "EXAVITQu4vr4xnSDxMaL"; // Default: Sarah
+
     const response = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId }),
+        body: JSON.stringify({ text, voiceId: actualVoiceId }),
     });
 
-    if (!response.ok) throw new Error("TTS request failed");
+    if (!response.ok) {
+        const errText = await response.text();
+        console.error("TTS API Error:", errText);
+        throw new Error("TTS request failed");
+    }
 
     const arrayBuffer = await response.arrayBuffer();
-    const audioContext = new AudioContext();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    const source = audioContext.createBufferSource();
+
+
+    if (!sharedAudioContext) {
+        sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+
+
+    if (sharedAudioContext.state === "suspended") {
+        await sharedAudioContext.resume();
+    }
+
+    const audioBuffer = await sharedAudioContext.decodeAudioData(arrayBuffer);
+    const source = sharedAudioContext.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(audioContext.destination);
+    source.connect(sharedAudioContext.destination);
     source.start();
 }
 

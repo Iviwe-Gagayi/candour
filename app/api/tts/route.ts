@@ -1,53 +1,55 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
-const client = new ElevenLabsClient({
-    apiKey: process.env.ELEVENLABS_API_KEY,
-});
-
-//Voices to try:
-// Rachel (calm, professional): 21m00Tcm4TlvDq8ikWAM
-// Adam (authoritative, male): pNInz6obpgDQGcFmaJgB
-// Bella (warm, friendly): EXAVITQu4vr4xnSDxMaL
-
-const VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
     try {
         const { text, voiceId } = await req.json();
 
-        if (!text) {
-            return NextResponse.json({ error: "Missing text" }, { status: 400 });
+        if (!process.env.ELEVENLABS_API_KEY) {
+            return NextResponse.json({ error: "Missing ELEVENLABS_API_KEY in .env.local" }, { status: 500 });
         }
 
-        const audio = await client.textToSpeech.convert(voiceId || VOICE_ID, {
-            text,
-            modelId: "eleven_turbo_v2",
+        // Initialize the client
+        const client = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY });
+
+        // Request the audio stream
+        const audioStream = await client.textToSpeech.convert(voiceId, {
+            text: text,
+            modelId: "eleven_turbo_v2_5", // Recommended for fast, conversational AI
             outputFormat: "mp3_44100_128",
         });
 
-        // Convert ReadableStream to buffer
-        const reader = audio.getReader();
+        // Convert the ReadableStream to a Buffer for the browser
         const chunks: Uint8Array[] = [];
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) chunks.push(value);
+        const reader = audioStream.getReader();
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+        } finally {
+            reader.releaseLock();
         }
-
         const buffer = Buffer.concat(chunks);
 
+        // Return the raw audio file
         return new NextResponse(buffer, {
             headers: {
                 "Content-Type": "audio/mpeg",
                 "Content-Length": buffer.length.toString(),
             },
         });
-    } catch (error) {
-        console.error("ElevenLabs API error:", error);
+
+    } catch (error: any) {
+        // 🔥 THIS IS THE MAGIC LINE: It prints the REAL error to your VS Code terminal
+        console.error("🔥 ElevenLabs Server Error:", error?.body || error.message || error);
+
         return NextResponse.json(
-            { error: "Failed to generate speech" },
+            {
+                error: "Failed to generate speech",
+                details: error?.body || error.message
+            },
             { status: 500 }
         );
     }

@@ -23,51 +23,69 @@ export function connectHume(
     const socket = new WebSocket(`wss://api.hume.ai/v0/stream/models?apiKey=${apiKey}`);
 
     socket.onmessage = (event) => {
-        const response = JSON.parse(event.data);
+        try {
+            const response = JSON.parse(event.data);
 
-        const models = response.models || response;
+            // 🕵️ X-RAY: See exactly what Hume is returning!
+            console.log("🧠 Hume API Response:", response);
 
-        // reducing the weight of Boredom/Tiredness by 40%
-        const applyCalibration = (emotions: HumeEmotion[]) => {
-            return emotions.map(e => ({
-                ...e,
-                score: ["Boredom", "Tiredness", "Sadness"].includes(e.name) ? e.score * 0.5 : e.score
-            })).sort((a, b) => b.score - a.score).slice(0, 3);
-        };
+            if (response.error || response.type === "error") {
+                console.error("🚨 Hume API Error:", response);
+                return;
+            }
 
-        // Handle Face Data
-        const facePredictions = models.face?.predictions;
-        if (facePredictions && facePredictions.length > 0) {
-            const topFace = facePredictions[0].emotions
-                .sort((a: HumeEmotion, b: HumeEmotion) => b.score - a.score)
-                .slice(0, 3);
+            if (response.warning || response.type === "warning") {
+                console.warn("⚠️ Hume Warning (e.g., no face detected):", response.warning || response.message);
+                return;
+            }
 
-            onMessage({
-                timestamp: Date.now(),
-                type: "face",
-                topEmotions: topFace,
-                actionableLabel: generateFaceLabel(topFace)
-            });
-        }
+            const models = response.models || response;
 
-        // Handle Voice (Prosody) Data
-        const prosodyPredictions = models.prosody?.predictions;
-        if (prosodyPredictions && prosodyPredictions.length > 0) {
-            const topVoice = prosodyPredictions[0].emotions
-                .sort((a: HumeEmotion, b: HumeEmotion) => b.score - a.score)
-                .slice(0, 3);
+            const applyCalibration = (emotions: HumeEmotion[]) => {
+                if (!emotions || !Array.isArray(emotions)) return [];
+                return emotions.map(e => ({
+                    ...e,
+                    score: ["Boredom", "Tiredness", "Sadness"].includes(e.name) ? e.score * 0.5 : e.score
+                })).sort((a, b) => b.score - a.score).slice(0, 3);
+            };
 
-            onMessage({
-                timestamp: Date.now(),
-                type: "voice",
-                topEmotions: topVoice,
-                actionableLabel: generateVoiceLabel(topVoice)
-            });
+            // Handle Face Data
+            const facePredictions = models.face?.predictions;
+            if (facePredictions && facePredictions.length > 0) {
+                // Bulletproof chaining just in case Hume's structure varies
+                const rawEmotions = facePredictions[0]?.emotions || [];
+                if (rawEmotions.length > 0) {
+                    const calibratedFace = applyCalibration(rawEmotions);
+                    onMessage({
+                        timestamp: Date.now(),
+                        type: "face",
+                        topEmotions: calibratedFace,
+                        actionableLabel: generateFaceLabel(calibratedFace)
+                    });
+                }
+            }
+
+            // Handle Voice (Prosody) Data
+            const prosodyPredictions = models.prosody?.predictions;
+            if (prosodyPredictions && prosodyPredictions.length > 0) {
+                const rawVoiceEmotions = prosodyPredictions[0]?.emotions || [];
+                if (rawVoiceEmotions.length > 0) {
+                    const calibratedVoice = applyCalibration(rawVoiceEmotions);
+                    onMessage({
+                        timestamp: Date.now(),
+                        type: "voice",
+                        topEmotions: calibratedVoice,
+                        actionableLabel: generateVoiceLabel(calibratedVoice)
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("❌ Error parsing Hume message:", err);
         }
     };
 
     socket.onerror = (error) => {
-        console.error("Hume WebSocket Error:", error);
+        console.error("❌ Hume WebSocket Error:", error);
         onError(error);
     };
 
@@ -76,6 +94,12 @@ export function connectHume(
 
 export function sendFrameToHume(videoElement: HTMLVideoElement, socket: WebSocket) {
     if (socket.readyState !== WebSocket.OPEN) return;
+
+    // Sometimes readyState is finicky. Let's just make sure the video has width.
+    if (!videoElement.videoWidth || !videoElement.videoHeight) {
+        console.warn("⏳ Video element not ready yet...");
+        return;
+    }
 
     if (!offscreenCanvas) {
         offscreenCanvas = document.createElement("canvas");
@@ -89,28 +113,37 @@ export function sendFrameToHume(videoElement: HTMLVideoElement, socket: WebSocke
         offscreenCtx.drawImage(videoElement, 0, 0, 320, 240);
         const base64Data = offscreenCanvas.toDataURL("image/jpeg", 0.7).split(",")[1];
 
-        socket.send(JSON.stringify({
-            data: base64Data,
-            models: { face: {} }
-        }));
+        if (base64Data.length > 100) {
+            console.log("📸 Sending Face Frame to Hume...");
+            socket.send(JSON.stringify({
+                data: base64Data,
+                models: { face: {} }
+            }));
+        }
     }
 }
 
-// Capturing audio chunks and send to Hume's Prosody model
 export function startAudioCapture(stream: MediaStream, socket: WebSocket) {
     const audioTracks = stream.getAudioTracks();
-    if (audioTracks.length === 0) return { stop: () => { } };
+    if (audioTracks.length === 0) {
+        console.warn("🔇 No audio tracks found in stream!");
+        return { stop: () => { } };
+    }
 
-    const audioStream = new MediaStream(audioTracks);
+    // 🔥 THE FIX: Isolate the microphone into an AUDIO-ONLY stream
+    const audioStream = new MediaStream([audioTracks[0]]);
 
     let mimeType = 'audio/webm';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'audio/mp4';
     }
 
-    const recordAndSend = () => {
+    let interval: NodeJS.Timeout;
+
+    const recordChunk = () => {
         if (socket.readyState !== WebSocket.OPEN) return;
 
+        // Use the new audioStream here instead of the mixed video stream
         const recorder = new MediaRecorder(audioStream, { mimeType });
 
         recorder.ondataavailable = async (e) => {
@@ -119,6 +152,7 @@ export function startAudioCapture(stream: MediaStream, socket: WebSocket) {
                 reader.readAsDataURL(e.data);
                 reader.onloadend = () => {
                     const base64Audio = (reader.result as string).split(",")[1];
+                    console.log("🎤 Sending Audio Chunk to Hume...");
                     socket.send(JSON.stringify({
                         data: base64Audio,
                         models: { prosody: {} }
@@ -129,21 +163,23 @@ export function startAudioCapture(stream: MediaStream, socket: WebSocket) {
 
         recorder.start();
 
-        // Stop recording after 2 seconds to finalize the file and give it a valid header
         setTimeout(() => {
             if (recorder.state === "recording") recorder.stop();
-        }, 2000);
+        }, 2500);
     };
 
-    // Fire immediately, then repeat every 3 seconds
-    recordAndSend();
-    const interval = setInterval(recordAndSend, 3000);
+    recordChunk();
+    interval = setInterval(recordChunk, 3000);
 
-    // Return a simple stop function to clean up the interval later
-    return { stop: () => clearInterval(interval) };
+    return {
+        stop: () => {
+            clearInterval(interval);
+        }
+    };
 }
 
 function generateFaceLabel(emotions: HumeEmotion[]): string {
+    if (!emotions || emotions.length === 0) return "Analyzing face...";
     const primary = emotions[0].name;
     const insights: Record<string, string> = {
         Concentration: "You look highly focused.",
@@ -162,8 +198,8 @@ function generateFaceLabel(emotions: HumeEmotion[]): string {
     return insights[primary] ?? label;
 }
 
-//Mapping vocal tones to actionable feedback
 function generateVoiceLabel(emotions: HumeEmotion[]): string {
+    if (!emotions || emotions.length === 0) return "Analyzing voice...";
     const primary = emotions[0].name;
     const insights: Record<string, string> = {
         Confidence: "You sound highly confident.",

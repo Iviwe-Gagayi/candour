@@ -8,7 +8,6 @@ export default function Home() {
       className="flex flex-col"
     >
       {/* Skip navigation - screen reader / keyboard users */}
-
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
@@ -128,6 +127,39 @@ export default function Home() {
           >
             Start Rehearsing →
           </Link>
+
+          {/* Bouncing Scroll Indicator */}
+          <div style={{ display: "flex", justifyContent: "center", marginTop: "3rem" }}>
+            <a
+              href="#how-it-works"
+              className="animate-bounce"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "0.5rem",
+                color: "rgba(255,255,255,0.4)",
+                textDecoration: "none",
+                transition: "color 0.2s"
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#fbbf24")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.4)")}
+              onClick={(e) => {
+                e.preventDefault();
+                document.querySelector('#how-it-works')?.scrollIntoView({
+                  behavior: 'smooth'
+                });
+              }}
+              aria-label="Scroll to How it works"
+            >
+              <span style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600 }}>
+                How it works
+              </span>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </a>
+          </div>
         </div>
 
       </section>
@@ -135,6 +167,7 @@ export default function Home() {
 
       {/* Features */}
       <section
+        id="how-it-works"
         aria-labelledby="features-heading"
         style={{ borderTop: "1px solid rgba(255,255,255,0.075)" }}
         className="px-8 py-12 max-w-5xl mx-auto w-full"
@@ -196,6 +229,25 @@ export default function Home() {
               >
                 {f.desc}
               </p>
+
+              {/* Conditional Rendering for the Lighting Warning Badge */}
+              {f.title === "Expression Tracking" && (
+                <div style={{ marginTop: "0.5rem" }}>
+                  <span style={{
+                    background: "rgba(251,191,36,0.1)",
+                    color: "#fbbf24",
+                    border: "1px solid rgba(251,191,36,0.2)",
+                    padding: "4px 10px",
+                    borderRadius: "6px",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    letterSpacing: "0.05em",
+                    textTransform: "uppercase"
+                  }}>
+                    Good lighting recommended
+                  </span>
+                </div>
+              )}
             </article>
           ))}
         </div>

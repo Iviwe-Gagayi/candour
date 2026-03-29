@@ -10,7 +10,7 @@ const VOICES = [
     { id: "auto", label: "Auto (Let AI choose)" },
     { id: "EXAVITQu4vr4xnSDxMaL", label: "Sarah (Calm, Female)" },
     { id: "IKne3meq5aSn9XLyUdCD", label: "Charlie (Conversational, Male)" },
-    { id: "FGY2WhTYpPnrIDTdsK5Y", label: "Laura (Professional, Female)" }
+    { id: "pNInz6obpgDQGcFmaJgB", label: "Adam (Professional, Male)" }
 ];
 
 const PRESETS: ScenarioConfig[] = [
